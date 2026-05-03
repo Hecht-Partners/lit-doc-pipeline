@@ -29,6 +29,8 @@ class DocumentType(Enum):
     SCHOLARLY = "scholarly"                          # p. N (generic handler)
     SEC_FILING = "sec_filing"                       # p. N (generic handler)
     WITNESS_STATEMENT = "witness_statement"          # ¶ N (reuses expert_report handler)
+    DISCOVERY_RESPONSE = "discovery_response"        # ROG/RFP/RFA No. N format
+    DISCOVERY_REQUEST = "discovery_request"          # ROG/RFP/RFA No. N (no responses)
 
 
 @dataclass
@@ -48,10 +50,14 @@ class CitationData:
     column: Optional[int] = None
     paragraph_number: Optional[int] = None
     type: str = "unknown"
+    # Discovery-response fields: identifies which numbered request a text element
+    # belongs to. kind is one of {"rog", "rfp", "rfa"}; number is 1, 2, ...
+    discovery_request_kind: Optional[str] = None
+    discovery_request_number: Optional[int] = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
-        return {
+        d = {
             "page": self.page,
             "line_start": self.line_start,
             "line_end": self.line_end,
@@ -60,6 +66,11 @@ class CitationData:
             "paragraph_number": self.paragraph_number,
             "type": self.type
         }
+        if self.discovery_request_kind is not None:
+            d["discovery_request_kind"] = self.discovery_request_kind
+        if self.discovery_request_number is not None:
+            d["discovery_request_number"] = self.discovery_request_number
+        return d
 
 
 @dataclass

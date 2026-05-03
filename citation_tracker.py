@@ -124,11 +124,14 @@ class CitationTracker:
             DocumentType.AGREEMENT,
         }
         PATENT_TYPES = {DocumentType.PATENT}
+        DISCOVERY_TYPES = {DocumentType.DISCOVERY_RESPONSE, DocumentType.DISCOVERY_REQUEST}
 
         if self.doc_type in TRANSCRIPT_TYPES:
             citations = self._handle_deposition(texts, self_ref_map, bates_by_page)
         elif self.doc_type in PATENT_TYPES:
             citations = self._handle_patent(texts, self_ref_map, bates_by_page, doc_data)
+        elif self.doc_type in DISCOVERY_TYPES:
+            citations = self._handle_discovery(texts, self_ref_map, bates_by_page)
         elif self.doc_type in PARAGRAPH_TYPES:
             citations = self._handle_expert_report(texts, self_ref_map, bates_by_page)
         else:
@@ -701,6 +704,73 @@ class CitationTracker:
                 paragraph_number=current_paragraph,
                 bates=bates,
                 type="paragraph" if current_paragraph else "page_only",
+            ).to_dict()
+
+        return citations
+
+    # ── Discovery Handler ────────────────────────────────────────────────
+
+    # Boundary markers in discovery requests/responses. Group(1) captures the
+    # request kind so we can store it as kind=rog/rfp/rfa.
+    DISCOVERY_BOUNDARY_RE = re.compile(
+        r"^\s*"
+        r"(?:#+\s*)?"
+        r"(?:\*+\s*)?"
+        r"(?:RESPONSE\s+TO\s+|SUPPLEMENTAL\s+RESPONSE\s+TO\s+|FURTHER\s+RESPONSE\s+TO\s+)?"
+        r"(INTERROGATORY|REQUEST\s+FOR\s+PRODUCTION|REQUEST\s+FOR\s+ADMISSION)"
+        r"\s+NO\.\s*(\d+)",
+        re.I,
+    )
+
+    @staticmethod
+    def _kind_from_label(label: str) -> str:
+        u = label.upper()
+        if "PRODUCTION" in u:
+            return "rfp"
+        if "ADMISSION" in u:
+            return "rfa"
+        return "rog"
+
+    def _handle_discovery(
+        self,
+        texts: list,
+        self_ref_map: Dict[int, str],
+        bates_by_page: Dict[str, str],
+    ) -> Dict[str, dict]:
+        """Discovery requests / responses. Tracks numbered request boundaries.
+
+        Each text element inherits the most recently seen request number,
+        so chunkers can group all text under one INTERROGATORY/RFP/RFA NO. N
+        into a single chunk.
+        """
+        citations: Dict[str, dict] = {}
+        current_kind: Optional[str] = None
+        current_number: Optional[int] = None
+
+        for i, t in enumerate(texts):
+            if self._is_skippable(t):
+                continue
+
+            page_no = self._get_page_no(t)
+            if page_no is None:
+                continue
+
+            self_ref = self_ref_map.get(i, f"#/texts/{i}")
+            text = t.get("text", "")
+
+            match = self.DISCOVERY_BOUNDARY_RE.match(text)
+            if match:
+                current_kind = self._kind_from_label(match.group(1))
+                current_number = int(match.group(2))
+
+            bates = self._associate_bates(page_no, bates_by_page)
+
+            citations[self_ref] = CitationData(
+                page=page_no,
+                bates=bates,
+                type="discovery_request" if current_number is not None else "page_only",
+                discovery_request_kind=current_kind,
+                discovery_request_number=current_number,
             ).to_dict()
 
         return citations

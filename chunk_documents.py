@@ -38,6 +38,11 @@ class ChunkMetadata:
     paragraph_numbers: List[int] = field(default_factory=list)
     columns: List[int] = field(default_factory=list)
     transcript_pages: List[int] = field(default_factory=list)
+    # Discovery-response: which numbered request this chunk answers
+    discovery_request_kind: Optional[str] = None       # "rog" | "rfp" | "rfa"
+    discovery_request_number: Optional[int] = None     # e.g., 21
+    discovery_part: Optional[int] = None               # 1-indexed for split chunks
+    discovery_part_total: Optional[int] = None         # total parts when split
 
 
 class DocumentChunker:
@@ -73,6 +78,7 @@ class DocumentChunker:
         DocumentType.AGREEMENT,
     }
     PATENT_TYPES = {DocumentType.PATENT}
+    DISCOVERY_TYPES = {DocumentType.DISCOVERY_RESPONSE, DocumentType.DISCOVERY_REQUEST}
 
     def chunk_document(
         self,
@@ -106,6 +112,8 @@ class DocumentChunker:
         chunks = []
         if doc_type in self.TRANSCRIPT_TYPES:
             chunks = self._chunk_deposition(sections, citations, stem, source_file, source_path=source_path)
+        elif doc_type in self.DISCOVERY_TYPES:
+            chunks = self._chunk_discovery(sections, citations, stem, source_file, doc_type, source_path=source_path)
         elif doc_type in self.PARAGRAPH_TYPES:
             chunks = self._chunk_expert_report(sections, citations, stem, source_file, source_path=source_path)
         elif doc_type in self.PATENT_TYPES:
@@ -510,6 +518,243 @@ class DocumentChunker:
 
         return chunks
 
+    # ── Discovery (request/response) Chunking ────────────────────────
+
+    # Boundary regex matches the START of a numbered request OR response.
+    # Allows leading whitespace, optional markdown header prefix (`## `,
+    # `### `), and optional bold-marker stars (`**`). Must mirror the pattern
+    # used in citation_tracker.CitationTracker.DISCOVERY_BOUNDARY_RE so headers
+    # and text-ids stay in sync.
+    DISCOVERY_BOUNDARY_RE = re.compile(
+        r"^\s*"
+        r"(?:#+\s*)?"
+        r"(?:\*+\s*)?"
+        r"(?:RESPONSE\s+TO\s+|SUPPLEMENTAL\s+RESPONSE\s+TO\s+|FURTHER\s+RESPONSE\s+TO\s+)?"
+        r"(INTERROGATORY|REQUEST\s+FOR\s+PRODUCTION|REQUEST\s+FOR\s+ADMISSION)"
+        r"\s+NO\.\s*(\d+)",
+        re.I,
+    )
+
+    @staticmethod
+    def _discovery_kind_from_label(label: str) -> str:
+        u = label.upper()
+        if "PRODUCTION" in u:
+            return "rfp"
+        if "ADMISSION" in u:
+            return "rfa"
+        return "rog"
+
+    def _chunk_discovery(
+        self,
+        sections: List[dict],
+        citations: dict,
+        stem: str,
+        source_file: str,
+        doc_type: DocumentType,
+        source_path: str = "",
+    ) -> List[Chunk]:
+        """
+        Chunk a discovery request or response by numbered-request boundaries.
+
+        One chunk per (kind, number) bundle: every line under
+        ``INTERROGATORY NO. 5`` (or RFP/RFA) — including the quoted request
+        text, objections, response, and any supplemental responses — until the
+        next numbered boundary.
+
+        If a single bundle's token count exceeds ``self.max_tokens``, it is
+        split with the request header repeated at the top of each split chunk
+        and a small overlap between consecutive splits.
+        """
+        # Step 1: walk the sections and group line entries by (kind, number).
+        # A "preamble" group (kind=None, number=None) collects everything
+        # before the first numbered boundary (caption, general objections,
+        # statement of definitions, etc.).
+        groups: List[dict] = []
+        current = {
+            "kind": None,
+            "number": None,
+            "header_line": None,
+            "entries": [],   # list of (line_text, text_id)
+        }
+        groups.append(current)
+
+        for section in sections:
+            for line_text, text_id in section["lines"]:
+                stripped = line_text.strip()
+                if not stripped:
+                    current["entries"].append((line_text, text_id))
+                    continue
+                m = self.DISCOVERY_BOUNDARY_RE.match(stripped)
+                # Only treat as a boundary if it's the FIRST occurrence for
+                # this (kind, number) — i.e., the request header. The matching
+                # "RESPONSE TO INTERROGATORY NO. N" line should not start a
+                # new chunk; it lives inside the same bundle.
+                is_request_header = bool(m) and not re.match(
+                    r"^\s*(?:#+\s*)?(?:\*+\s*)?(?:RESPONSE\s+TO|SUPPLEMENTAL\s+RESPONSE\s+TO|FURTHER\s+RESPONSE\s+TO)\b",
+                    stripped, re.I,
+                )
+                if is_request_header:
+                    kind = self._discovery_kind_from_label(m.group(1))
+                    number = int(m.group(2))
+                    # Open a new group for this request number.
+                    current = {
+                        "kind": kind,
+                        "number": number,
+                        "header_line": line_text,
+                        "entries": [(line_text, text_id)],
+                    }
+                    groups.append(current)
+                else:
+                    current["entries"].append((line_text, text_id))
+
+        # Drop any preamble that's effectively empty (just blank lines).
+        if groups and groups[0]["number"] is None:
+            preamble_text = "\n".join(t for t, _ in groups[0]["entries"]).strip()
+            if not preamble_text:
+                groups.pop(0)
+
+        # Step 2: build chunks per group. Split oversized bundles, repeating
+        # the request header at the top of each split.
+        chunks: List[Chunk] = []
+        for g in groups:
+            entries = g["entries"]
+            if not entries:
+                continue
+            full_text = "\n".join(t for t, _ in entries)
+            tokens = len(full_text) // CHARS_PER_TOKEN
+
+            if tokens <= self.max_tokens:
+                # Single chunk for this bundle (including preamble groups
+                # where number is None).
+                chunks.append(self._build_discovery_chunk(
+                    entries, citations, stem, source_file, len(chunks),
+                    doc_type=doc_type,
+                    kind=g["kind"], number=g["number"],
+                    part=None, part_total=None,
+                    header_line=g["header_line"],
+                    source_path=source_path,
+                ))
+                continue
+
+            # Oversized — split with header repeat and overlap.
+            splits = self._split_discovery_entries(
+                entries,
+                header_line=g["header_line"],
+                target_tokens=self.target_tokens,
+                max_tokens=self.max_tokens,
+                overlap_tokens=self.overlap_tokens,
+            )
+            for part_idx, split_entries in enumerate(splits, start=1):
+                chunks.append(self._build_discovery_chunk(
+                    split_entries, citations, stem, source_file, len(chunks),
+                    doc_type=doc_type,
+                    kind=g["kind"], number=g["number"],
+                    part=part_idx, part_total=len(splits),
+                    header_line=g["header_line"],
+                    source_path=source_path,
+                ))
+
+        return chunks
+
+    def _split_discovery_entries(
+        self,
+        entries: List[Tuple[str, Optional[str]]],
+        header_line: Optional[str],
+        target_tokens: int,
+        max_tokens: int,
+        overlap_tokens: int,
+    ) -> List[List[Tuple[str, Optional[str]]]]:
+        """
+        Split an oversized request bundle into chunks. Each non-first split
+        gets the request header re-prepended (with a "(cont'd)" marker) so
+        retrieval still surfaces which numbered request it belongs to.
+        Consecutive splits share roughly ``overlap_tokens`` of overlap.
+        """
+        if not entries:
+            return []
+
+        # Lines already include the header_line as entries[0] (when present).
+        # We accumulate to ~target_tokens, then close out the split.
+        splits: List[List[Tuple[str, Optional[str]]]] = []
+        cur: List[Tuple[str, Optional[str]]] = []
+        cur_chars = 0
+        target_chars = target_tokens * CHARS_PER_TOKEN
+        max_chars = max_tokens * CHARS_PER_TOKEN
+        overlap_chars = overlap_tokens * CHARS_PER_TOKEN
+
+        for entry in entries:
+            line_text, _tid = entry
+            cur.append(entry)
+            cur_chars += len(line_text) + 1  # +1 for the newline
+            if cur_chars >= target_chars:
+                splits.append(cur)
+                # Build overlap tail: walk backwards collecting entries until
+                # ~overlap_chars worth of text has been gathered.
+                overlap_entries: List[Tuple[str, Optional[str]]] = []
+                acc = 0
+                for back in reversed(cur):
+                    if acc >= overlap_chars:
+                        break
+                    overlap_entries.insert(0, back)
+                    acc += len(back[0]) + 1
+                # Start the next split with the header re-prepended (marked
+                # cont'd) and then the overlap.
+                next_split: List[Tuple[str, Optional[str]]] = []
+                if header_line is not None:
+                    next_split.append((f"{header_line}  (cont’d)", None))
+                next_split.extend(overlap_entries)
+                cur = next_split
+                cur_chars = sum(len(t) + 1 for t, _ in cur)
+
+        # Final split — only emit if it has more than just the repeated header.
+        if cur:
+            non_header_chars = sum(
+                len(t) + 1 for t, _ in cur
+                if not (header_line and t.startswith(header_line[:30]))
+            )
+            if non_header_chars > 0 or not splits:
+                splits.append(cur)
+
+        return splits
+
+    def _build_discovery_chunk(
+        self,
+        entries: List[Tuple[str, Optional[str]]],
+        citations: dict,
+        stem: str,
+        source_file: str,
+        chunk_idx: int,
+        doc_type: DocumentType,
+        kind: Optional[str],
+        number: Optional[int],
+        part: Optional[int],
+        part_total: Optional[int],
+        header_line: Optional[str],
+        source_path: str = "",
+    ) -> Chunk:
+        """Materialize a discovery chunk from a list of entries."""
+        chunk_text = "\n".join(t for t, _ in entries)
+        page_map, bates_map = self._build_line_maps(entries, citations)
+
+        metadata = ChunkMetadata()
+        for _line_text, text_id in entries:
+            if text_id and text_id not in metadata.text_ids:
+                metadata.text_ids.append(text_id)
+                cite_key = f"#/texts/{text_id}"
+                if cite_key in citations:
+                    self._update_metadata(metadata, citations[cite_key])
+
+        metadata.discovery_request_kind = kind
+        metadata.discovery_request_number = number
+        metadata.discovery_part = part
+        metadata.discovery_part_total = part_total
+
+        return self._create_chunk(
+            chunk_text, metadata, stem, source_file, chunk_idx, doc_type,
+            page_map=page_map, bates_map=bates_map,
+            source_path=source_path,
+        )
+
     # ── Patent Chunking ──────────────────────────────────────────────
 
     def _chunk_patent(
@@ -717,6 +962,16 @@ class DocumentChunker:
                 "columns": sorted(set(metadata.columns))
             }
 
+        # Discovery-response fields
+        if metadata.discovery_request_kind is not None:
+            citation["discovery_request_kind"] = metadata.discovery_request_kind
+        if metadata.discovery_request_number is not None:
+            citation["discovery_request_number"] = metadata.discovery_request_number
+        if metadata.discovery_part is not None:
+            citation["discovery_part"] = metadata.discovery_part
+        if metadata.discovery_part_total is not None:
+            citation["discovery_part_total"] = metadata.discovery_part_total
+
         # Generate citation string
         citation_string = self._generate_citation_string(
             stem, doc_type, metadata
@@ -779,6 +1034,24 @@ class DocumentChunker:
                 cols = sorted(set(metadata.columns))
                 return f"{doc_name}, col. {cols[0]}"
             return f"{doc_name}"
+
+        elif doc_type in self.DISCOVERY_TYPES:
+            kind_label = {"rog": "ROG", "rfp": "RFP", "rfa": "RFA"}.get(
+                metadata.discovery_request_kind or "", "Req."
+            )
+            if metadata.discovery_request_number is not None:
+                base = f"{doc_name} {kind_label} No. {metadata.discovery_request_number}"
+                if metadata.discovery_part_total and metadata.discovery_part_total > 1:
+                    base += f" (Pt. {metadata.discovery_part}/{metadata.discovery_part_total})"
+                return base
+            # Preamble chunk (general objections, definitions) before any
+            # numbered request.
+            if metadata.pages:
+                pages = sorted(set(metadata.pages))
+                if len(pages) == 1:
+                    return f"{doc_name} (preamble), p. {pages[0]}"
+                return f"{doc_name} (preamble), pp. {pages[0]}-{pages[-1]}"
+            return f"{doc_name} (preamble)"
 
         else:
             # Generic: Prefer Bates numbers over page numbers (legal convention - Bug Fix #2)
@@ -865,6 +1138,8 @@ def _infer_type_from_citations(citations_path: Path) -> DocumentType:
         return DocumentType.DEPOSITION
     if "patent_column" in type_counts:
         return DocumentType.PATENT
+    if "discovery_request" in type_counts:
+        return DocumentType.DISCOVERY_RESPONSE
     if "paragraph" in type_counts and type_counts["paragraph"] > 3:
         return DocumentType.EXPERT_REPORT
     return DocumentType.UNKNOWN

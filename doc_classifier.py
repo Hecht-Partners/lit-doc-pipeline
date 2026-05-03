@@ -188,6 +188,20 @@ FILENAME_PATTERNS: List[Tuple[re.Pattern, DocumentType]] = [
     (re.compile(r"10-[KQ]|SEC\b|annual.?report", re.I), DocumentType.SEC_FILING),
     (re.compile(r"\bIEEE\b|standard|specification", re.I), DocumentType.TECHNICAL_STANDARD),
     (re.compile(r"statement.?of|witness.?statement|affidavit", re.I), DocumentType.WITNESS_STATEMENT),
+    # Discovery responses: "Resp(onse)? to ROGs/RFPs/RFAs", "Obj. and Resp.", "Supp Resp", etc.
+    (re.compile(
+        r"resp(?:onses?|s)?\s+(?:and\s+objs?|to)\s+.*(?:rogs?|interrog|rfps?|requests?\s+for\s+production|rfas?|requests?\s+for\s+admiss)"
+        r"|obj(?:\.|ections?)?\s+and\s+resp(?:onses?|s)?"
+        r"|supp(?:l(?:emental)?)?\s+resp"
+        r"|\b(?:rogs?|rfps?|rfas?)\s+no",
+        re.I,
+    ), DocumentType.DISCOVERY_RESPONSE),
+    # Discovery requests: "First/Second/N-th Set of ROGs/RFPs/RFAs", "Notice of Deposition"
+    (re.compile(
+        r"(?:first|second|third|fourth|fifth|\d(?:st|nd|rd|th)?)\s+set\s+of\s+(?:rogs?|interrog|rfps?|requests?|rfas?)"
+        r"|set\s+of\s+(?:interrogatories|requests?\s+for\s+(?:production|admission))",
+        re.I,
+    ), DocumentType.DISCOVERY_REQUEST),
 ]
 
 CONTENT_KEYWORDS: Dict[DocumentType, List[str]] = {
@@ -245,6 +259,22 @@ CONTENT_KEYWORDS: Dict[DocumentType, List[str]] = {
     DocumentType.WITNESS_STATEMENT: [
         "STATEMENT OF", "AFFIDAVIT", "SWORN", "NOTARIZED",
     ],
+    DocumentType.DISCOVERY_RESPONSE: [
+        "INTERROGATORY NO.", "RESPONSE TO INTERROGATORY",
+        "REQUEST FOR PRODUCTION NO.", "RESPONSE TO REQUEST FOR PRODUCTION",
+        "REQUEST FOR ADMISSION NO.", "RESPONSE TO REQUEST FOR ADMISSION",
+        "GENERAL OBJECTIONS", "SUPPLEMENTAL RESPONSE",
+        "PURSUANT TO RULES 26 AND 33", "PURSUANT TO RULE 33",
+        "PURSUANT TO RULE 34", "PURSUANT TO RULE 36",
+        "OBJECTIONS AND RESPONSES",
+    ],
+    DocumentType.DISCOVERY_REQUEST: [
+        "INTERROGATORY NO.", "REQUEST FOR PRODUCTION NO.",
+        "REQUEST FOR ADMISSION NO.", "PROPOUNDS THE FOLLOWING",
+        "FIRST SET OF INTERROGATORIES", "SECOND SET OF INTERROGATORIES",
+        "FIRST SET OF REQUESTS", "SECOND SET OF REQUESTS",
+        "NOTICE OF DEPOSITION",
+    ],
 }
 
 
@@ -260,6 +290,12 @@ def _signal_filename(filename: str) -> Dict[DocumentType, float]:
     for pattern, doc_type in FILENAME_PATTERNS:
         if pattern.search(name_lower):
             scores[doc_type] = max(scores[doc_type], 1.0)
+
+    # Mutual exclusion: filenames like "Resp to 2nd Set of Rogs" trigger
+    # both DISCOVERY_RESPONSE and DISCOVERY_REQUEST. The presence of "Resp"
+    # always wins — it's the response to that set, not the set itself.
+    if scores.get(DocumentType.DISCOVERY_RESPONSE, 0) >= 1.0:
+        scores.pop(DocumentType.DISCOVERY_REQUEST, None)
 
     return dict(scores)
 
@@ -330,6 +366,36 @@ def _signal_structural(text: str, num_pages: int) -> Tuple[Dict[DocumentType, fl
     debug["para_markers"] = para_markers
     if para_markers > 3:
         scores[DocumentType.EXPERT_REPORT] = max(scores.get(DocumentType.EXPERT_REPORT, 0), 0.5)
+
+    # Discovery request boundary headers ("INTERROGATORY NO. 1", "REQUEST FOR
+    # PRODUCTION NO. 12", "REQUEST FOR ADMISSION NO. 5"). Strong + specific —
+    # these patterns essentially never occur outside discovery docs.
+    discovery_boundaries = sum(
+        1 for l in lines
+        if re.match(
+            r"^\s*(?:INTERROGATORY|REQUEST\s+FOR\s+(?:PRODUCTION|ADMISSION))\s+NO\.\s*\d+",
+            l, re.I,
+        )
+    )
+    debug["discovery_boundaries"] = discovery_boundaries
+    if discovery_boundaries >= 1:
+        # Each numbered request is worth roughly 1/3 of a confidence point;
+        # a doc with 3+ requests is strongly classified.
+        score = min(1.0, discovery_boundaries / 3.0)
+        # If the doc also contains "RESPONSE TO" markers, it's a response;
+        # otherwise it's a request. Looking only at first 5 pages so this
+        # is a heuristic, not a guarantee — content keywords give the final say.
+        text_upper = text.upper()
+        if (
+            "RESPONSE TO INTERROGATORY" in text_upper
+            or "RESPONSE TO REQUEST" in text_upper
+            or "OBJECTIONS AND RESPONSES" in text_upper
+            or "GENERAL OBJECTIONS" in text_upper
+            or "SUPPLEMENTAL RESPONSE" in text_upper
+        ):
+            scores[DocumentType.DISCOVERY_RESPONSE] = score
+        else:
+            scores[DocumentType.DISCOVERY_REQUEST] = score
 
     return dict(scores), debug
 
@@ -575,6 +641,20 @@ def classify_document(
     runner_up_score = sorted_types[1][1] if len(sorted_types) > 1 else 0.0
     margin = winner_score - runner_up_score
 
+    # Real depositions trigger filename and/or content signals ("Deposition of
+    # X", "TRANSCRIPT OF PROCEEDINGS", etc.). Demote DEPOSITION winners that
+    # rely solely on the structural monospace signal, since that fires for
+    # patent apps and scholarly articles too — and DEPOSITION uniquely
+    # triggers the PyMuPDF fast path and Q&A-aware chunking, which collapse
+    # the whole document into one chunk.
+    if winner == DocumentType.DEPOSITION and (
+        s1.get(DocumentType.DEPOSITION, 0) == 0
+        and s2.get(DocumentType.DEPOSITION, 0) == 0
+    ):
+        winner = DocumentType.UNKNOWN
+    elif winner_score == 0.0:
+        winner = DocumentType.UNKNOWN
+
     needs_input = winner_score < CONFIDENCE_THRESHOLD or margin < MARGIN_THRESHOLD
 
     signals = {
@@ -611,6 +691,8 @@ ALL_DOC_TYPES = [
     DocumentType.SCHOLARLY,
     DocumentType.SEC_FILING,
     DocumentType.WITNESS_STATEMENT,
+    DocumentType.DISCOVERY_REQUEST,
+    DocumentType.DISCOVERY_RESPONSE,
     DocumentType.EXHIBIT,
 ]
 
