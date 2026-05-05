@@ -235,7 +235,9 @@ def build_indexes(output_dir: str, config_path: Optional[str] = None, force: boo
     # Update index state for each processed file
     for chunk_file in chunk_files:
         file_hash = IndexState.compute_file_hash(chunk_file)
-        file_chunks = [c for c in chunks if c.chunk_id.startswith(chunk_file.stem)]
+        doc_stem = chunk_file.name[:-len("_chunks.json")] if chunk_file.name.endswith("_chunks.json") else chunk_file.stem
+        chunk_prefix = f"{doc_stem}_chunk_"
+        file_chunks = [c for c in chunks if c.chunk_id.startswith(chunk_prefix)]
 
         index_types = ["bm25"]
         if vector_indexer.is_available():

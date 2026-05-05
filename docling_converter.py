@@ -153,6 +153,7 @@ class DoclingConverter:
             docling_bin,
             "--to", "md", "--to", "json",  # Both markdown and JSON for citation tracking
             "--image-export-mode", self.config["image_export_mode"],
+            "--pdf-backend", "pypdfium2",  # Try pypdfium2 backend for better text formatting extraction
             "--output", str(output_dir),
             str(input_path)
         ]

@@ -27,7 +27,7 @@ Before starting, gather these inputs (ask only what's missing — don't re-ask i
 | **Parallel or sequential?** | Parallel is 3-4x faster but uses more memory | `--parallel --max-workers 4` |
 | **Interactive or non-interactive?** | Interactive prompts for low-confidence classifications; non-interactive skips them | Interactive |
 | **Conversion timeout** | Large scanned PDFs can take 10+ minutes in Docling | `300` (seconds); use `600-1800` for large corpora |
-| **Build search indexes after?** | Indexing is a separate step; BM25 is instant, vector index requires Ollama running | Ask user |
+| **Build search indexes after?** | BM25 + vector indexes are built automatically after processing; use `--no-index` to skip | Auto (default) |
 | **Run LLM enrichment?** | Adds summaries/categories/relevance — slow, optional | No |
 
 ### 2. Recommended Command (Large Corpus)
@@ -57,12 +57,14 @@ For small test runs or when the user wants to review classifications:
   --cleanup-json
 ```
 
-### 3. After Processing: Build Indexes
+### 3. Indexing (Automatic)
+
+Search indexes (BM25 + vector) are now built automatically after processing. No separate step needed.
+
+To skip auto-indexing, add `--no-index` to the process command. To rebuild indexes independently:
 
 ```bash
-# BM25 index (always works, instant)
-# Vector index (requires Ollama running with nomic-embed-text)
-.venv/bin/python lit_pipeline.py index <OUTPUT_DIR>/
+.venv/bin/python lit_pipeline.py index <OUTPUT_DIR>/ [--force-rebuild]
 ```
 
 **Known issue:** Ollama embedding can return 500 errors on some chunks (especially large tables or non-text content). The indexer skips those chunks gracefully — BM25 still indexes everything. If Ollama is not running, only BM25 will be built. BM25 alone achieves 98% Precision@5, so this is fine for most use cases.
@@ -80,7 +82,6 @@ The pipeline now prints a **dashboard-style report** automatically. After the ru
    - **Citation tracking degraded** — JSON was present but citation extraction threw an error
 3. **SUMMARY line** — Total OK/failed/skipped counts, chunk and citation totals, timing
 4. **Offer next steps:**
-   - "Want me to build the search indexes?" (if not done yet)
    - "Want me to run a test search to verify results?"
    - "Want me to re-run the N failed documents with a higher timeout?"
    - "Want me to remove any specific documents from the corpus?"
@@ -128,10 +129,10 @@ The pipeline consists of 5 main steps:
 2. **Post-Processing** - Clean OCR artifacts while preserving citation markers
 3. **Citation Reconstruction** - Parse line/column/paragraph numbers from JSON provenance or text structure
 4. **Chunking** - Create semantic chunks inheriting citation metadata (saves to *_chunks.json)
-5. **Vector Indexing** - Hybrid BM25 + Chroma with metadata (separate command)
+5. **Search Indexing** - Hybrid BM25 + Chroma with metadata (runs automatically after step 4)
 6. **LLM Enrichment (Optional)** - Summaries, key quotes, categorization (optional flag)
 
-**Note:** Steps 1-4 run via `lit_pipeline.py process`, Step 5 via `lit_pipeline.py index`, Step 6 via `--enrich` flag or `lit_pipeline.py enrich`.
+**Note:** Steps 1-5 run via `lit_pipeline.py process` (use `--no-index` to skip step 5). Step 6 via `--enrich` flag or `lit_pipeline.py enrich`. Indexes can also be rebuilt independently via `lit_pipeline.py index`.
 
 **Additional commands:** `lit_pipeline.py classify` (standalone classification), `lit_pipeline.py remove` (surgical document removal from indexes).
 
@@ -236,22 +237,11 @@ The pipeline consists of 5 main steps:
 - **Creates semantic chunks** (saves to *_chunks.json files)
 - Uses parallel processing (4 workers)
 - Cleans up JSON files after processing
+- **Builds search indexes automatically** (BM25 + vector via Ollama)
 
-**Expected output:** `~/Dev/processed-lit-docs/my_case/converted/` with .md, _citations.json, and **_chunks.json** files
+**Expected output:** `~/Dev/processed-lit-docs/my_case/converted/` with .md, _citations.json, and **_chunks.json** files, plus `indexes/bm25_index.pkl` and `indexes/chroma_db/`
 
-### Step 2: Build Search Indexes
-```bash
-.venv/bin/python lit_pipeline.py index ~/Dev/processed-lit-docs/my_case/
-```
-
-**What this does:**
-- Builds BM25 keyword index (~0.3s)
-- Builds ChromaDB vector index via Ollama (~90s for 882 chunks)
-- Uses incremental indexing (30x faster for unchanged files)
-
-**Expected output:** `~/Dev/processed-lit-docs/my_case/indexes/bm25_index.pkl` and `.../indexes/chroma_db/`
-
-### Step 3: Test Search
+### Step 2: Test Search
 ```bash
 # Hybrid search with reranking (best quality)
 .venv/bin/python lit_pipeline.py search \
@@ -362,7 +352,7 @@ To surgically remove a processed document from all output files and search index
 4. **NEVER confuse patent numbers (7+ digits) with claim numbers (1-2 digits)**
 5. **NEVER disable JSON output** - Page metadata is required for citation tracking
 6. **ALWAYS run chunking after citation extraction** - Chunks need citation metadata to be useful
-7. **NEVER skip the indexing step** - Chunks are not searchable until indexed
+7. **Indexing runs automatically** - Use `--no-index` only if you have a reason to skip it
 
 ## Document Type Handling
 

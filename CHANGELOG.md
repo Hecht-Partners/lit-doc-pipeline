@@ -4,6 +4,21 @@ All notable changes to the litigation document pipeline.
 
 ---
 
+## [1.1.1] - 2026-03-07
+
+### Fixed: Parallel Processing + `--use-existing`
+
+- `--parallel` now uses path-keyed stem mapping to avoid same-stem collisions across nested folders.
+- Worker processes now copy `--use-existing` artifacts (`{stem}.md`, `{stem}.json`, optional `{stem}_bates.json`) into `output/converted`.
+- Parallel PyMuPDF fast-path now matches sequential behavior: if extraction yields zero citations, it falls back to Docling.
+- Transcript fast-path metadata now preserves `hearing_transcript` vs `deposition` instead of forcing deposition.
+- Fixed stale `page_count` metadata leakage between documents in both sequential and parallel loops.
+- Classification results are re-keyed to disambiguated stems used by the pipeline run, improving consistency in chunking and reporting.
+
+**Files:** `run_pipeline.py`, `parallel_processor.py`, `tests/test_parallel_processor.py`
+
+---
+
 ## [1.1.0] - 2026-03-04
 
 ### Critical Bug Fixes - Citation Engine

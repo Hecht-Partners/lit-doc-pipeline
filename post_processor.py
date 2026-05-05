@@ -134,11 +134,11 @@ class PostProcessor:
         in_concordance = False
         in_toc = False
 
-        for line in lines:
+        for line_idx, line in enumerate(lines):
             # Detect concordance sections (alphabetical word lists)
             if re.match(r'^[A-Z]\s*$', line) and len(cleaned_lines) > 0:
                 # Single letter lines might indicate concordance
-                if self._is_concordance_section(lines, lines.index(line)):
+                if self._is_concordance_section(lines, line_idx):
                     in_concordance = True
                     continue
 

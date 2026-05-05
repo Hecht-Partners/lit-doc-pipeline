@@ -55,6 +55,12 @@ def cmd_process(args):
         interactive=getattr(args, 'interactive', True),
     )
 
+    # Auto-index after processing (default behavior)
+    if getattr(args, 'index', True):
+        logger.info("Building search indexes (BM25 + vector)...")
+        from lit_doc_retriever import build_indexes
+        build_indexes(str(output_dir), config_path=None, force=False)
+
 
 def cmd_index(args):
     """Build search indexes from processed chunks."""
@@ -312,16 +318,19 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Process documents
+  # Process documents (converts, chunks, and builds search indexes)
   lit-pipeline process tests/test_docs output/
 
   # Process with enrichment
   lit-pipeline process tests/test_docs output/ --enrich --case-type patent
 
+  # Process without auto-indexing
+  lit-pipeline process tests/test_docs output/ --no-index
+
   # Use config file
   lit-pipeline --config my-config.json process tests/test_docs output/
 
-  # Build indexes
+  # Rebuild indexes separately
   lit-pipeline index output/
 
   # Search
@@ -351,8 +360,8 @@ Examples:
     # ── Process command ──────────────────────────────────────────────────
     process_parser = subparsers.add_parser(
         "process",
-        help="Process PDF documents through the pipeline",
-        description="Convert PDFs to markdown, extract citations, and create chunks"
+        help="Process PDF documents and build search indexes",
+        description="Convert PDFs to markdown, extract citations, create chunks, and build BM25/vector search indexes"
     )
     process_parser.add_argument(
         "input_dir",
@@ -439,6 +448,13 @@ Examples:
         action="store_false",
         default=True,
         help="Skip interactive prompts for low-confidence document classifications"
+    )
+    process_parser.add_argument(
+        "--no-index",
+        dest="index",
+        action="store_false",
+        default=True,
+        help="Skip building search indexes after processing (by default, BM25 and vector indexes are built automatically)"
     )
 
     # ── Classify command ────────────────────────────────────────────────

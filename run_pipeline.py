@@ -26,7 +26,13 @@ from tqdm import tqdm
 from citation_tracker import CitationTracker
 from citation_types import DocumentType
 from chunk_documents import chunk_all_documents
-from doc_classifier import classify_directory, ProfileStore, ClassificationResult, is_condensed_transcript
+from doc_classifier import (
+    classify_directory,
+    classify_document,
+    ProfileStore,
+    ClassificationResult,
+    is_condensed_transcript,
+)
 from docling_converter import DoclingConverter
 from parallel_processor import process_documents_parallel, get_optimal_worker_count
 from pdf_metadata import extract_pdf_metadata, get_page_count
@@ -403,23 +409,6 @@ def run_pipeline(
     # Build doc_type_map: normalized_stem -> DocumentType
     doc_type_map = {stem: cr.doc_type for stem, cr in classifications.items()}
 
-    # Inject classifications for .txt files (can't go through PyMuPDF classifier)
-    for file_path in pdfs:
-        if file_path.suffix.lower() == ".txt":
-            txt_stem = normalize_stem(file_path.stem)
-            if txt_stem not in doc_type_map:
-                doc_type_map[txt_stem] = DocumentType.DEPOSITION
-                classifications[txt_stem] = ClassificationResult(
-                    doc_type=DocumentType.DEPOSITION,
-                    confidence=1.0,
-                    is_text_based=True,
-                    needs_user_input=False,
-                    signals={},
-                )
-
-    logger.info("Classifications: %s",
-                {s: dt.value for s, dt in doc_type_map.items()})
-
     # ── Filter out condensed transcripts ─────────────────────────────
     skipped_condensed = []
     filtered_pdfs = []
@@ -467,6 +456,49 @@ def run_pipeline(
     # Build reverse map: pdf_path -> disambiguated stem (used by both parallel and sequential)
     pdf_to_stem = {v: k for k, v in stem_to_pdf.items()}
 
+    # Re-key classifications to disambiguated stems and handle collisions explicitly.
+    base_counts = {}
+    for pdf_path in pdfs:
+        base = normalize_stem(pdf_path.stem)
+        base_counts[base] = base_counts.get(base, 0) + 1
+
+    disambiguated_classifications = {}
+    for pdf_path in pdfs:
+        base = normalize_stem(pdf_path.stem)
+        normalized = pdf_to_stem.get(pdf_path, base)
+
+        if pdf_path.suffix.lower() == ".txt":
+            cr = ClassificationResult(
+                doc_type=DocumentType.DEPOSITION,
+                confidence=1.0,
+                is_text_based=True,
+                needs_user_input=False,
+                signals={},
+            )
+        elif base_counts.get(base, 0) > 1:
+            # Prevent stem collisions from collapsing multiple documents into one key.
+            cr = classify_document(str(pdf_path), profile_store=profile_store)
+        else:
+            cr = classifications.get(base)
+            if cr is None:
+                cr = ClassificationResult(
+                    doc_type=DocumentType.UNKNOWN,
+                    confidence=0.0,
+                    is_text_based=False,
+                    needs_user_input=False,
+                    signals={},
+                )
+
+        disambiguated_classifications[normalized] = cr
+        doc_type_map[normalized] = cr.doc_type
+
+    classifications = disambiguated_classifications
+
+    logger.info(
+        "Classifications: %s",
+        {stem: cr.doc_type.value for stem, cr in classifications.items()},
+    )
+
     # Check if parallel processing is requested
     if parallel:
         if max_workers is None:
@@ -474,8 +506,11 @@ def run_pipeline(
 
         logger.info("Using parallel processing with %d workers", max_workers)
 
-        # Build normalized stems map (respects disambiguation)
-        normalized_stems = {pdf.stem: pdf_to_stem.get(pdf, normalize_stem(pdf.stem)) for pdf in pdfs}
+        # Build path-keyed normalized stems map to avoid same-stem collisions.
+        normalized_stems = {
+            str(pdf.resolve()): pdf_to_stem.get(pdf, normalize_stem(pdf.stem))
+            for pdf in pdfs
+        }
 
         # Process documents in parallel
         results = process_documents_parallel(
@@ -511,6 +546,7 @@ def run_pipeline(
             # Compute content hash for deduplication (skip for .txt files)
             _content_hash = None
             _metadata = {}
+            _page_count = None
             if pdf_path.suffix.lower() == ".pdf":
                 try:
                     _content_hash = state.compute_content_hash(pdf_path)
@@ -544,7 +580,7 @@ def run_pipeline(
                 source_path=str(pdf_path),
                 file_size_bytes=_file_size,
                 content_hash=_content_hash,
-                page_count=_page_count if '_page_count' in locals() else None,
+                page_count=_page_count,
                 author=_metadata.get("author"),
                 creation_date=_metadata.get("creation_date"),
                 modified_date=_metadata.get("modified_date"),
@@ -646,7 +682,11 @@ def run_pipeline(
                         continue
 
                 # ── PyMuPDF fast path for text-based depositions ─────────────
-                if (known_type in TRANSCRIPT_TYPES and
+                # Require strong classifier confidence; otherwise the fast path
+                # silently swallows patent apps and scholarly PDFs whose
+                # monospace text triggers a weak deposition signal.
+                _conf = cr.confidence if cr else 0.0
+                if (known_type in TRANSCRIPT_TYPES and _conf >= 0.30 and
                     is_text and is_text_based_pdf(str(pdf_path)) and
                     state.should_process_document(normalized, "conversion", force)):
 
@@ -676,7 +716,7 @@ def run_pipeline(
                             "source_path": str(pdf_path),
                             "stem": normalized,
                             "status": "OK",
-                            "doc_type": DocumentType.DEPOSITION.value,
+                            "doc_type": (known_type or DocumentType.DEPOSITION).value,
                             "md_file": Path(pymupdf_result["md_path"]).name,
                             "json_file": None,
                             "citations_count": pymupdf_result["citation_count"],

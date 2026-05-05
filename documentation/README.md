@@ -60,6 +60,23 @@ lit-pipeline stats output/
 
 **Note:** Use `.venv/bin/python lit_pipeline.py` if not installed globally.
 
+## `--use-existing` with Parallel Mode
+
+Use `--use-existing <dir>` when Docling conversion has already been done and you want to rerun downstream stages quickly.
+
+Example:
+
+```bash
+lit-pipeline process input_docs/ output/ --parallel --use-existing prior_output/converted
+```
+
+Behavior:
+
+- Expects normalized filenames in `<dir>`: `{stem}.md` and `{stem}.json` (optional `{stem}_bates.json`).
+- In parallel mode, each worker now copies those files into `output/converted` before post-processing/citation/chunking.
+- If PyMuPDF fast-path extraction produces zero citations, the worker falls back to Docling for parity with sequential mode.
+- Transcript metadata preserves `deposition` vs `hearing_transcript` labels.
+
 ## Project Status
 
 **Current Status:** Phases 1-5 Complete ✅

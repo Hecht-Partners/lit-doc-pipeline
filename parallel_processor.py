@@ -8,6 +8,7 @@ thread-safe state tracking and error handling.
 import logging
 import multiprocessing as mp
 import os
+import shutil
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -36,6 +37,14 @@ def _should_disable_tqdm():
     return (os.environ.get('TQDM_DISABLE', '0') == '1' or
             os.environ.get('PYTEST_CURRENT_TEST') is not None or
             os.environ.get('CI', '').lower() == 'true')
+
+
+def _path_key(path: Path) -> str:
+    """Build a stable key for path-based mappings across processes."""
+    try:
+        return str(path.resolve())
+    except Exception:
+        return str(path)
 
 
 def process_single_document(
@@ -72,6 +81,7 @@ def process_single_document(
     """
     doc_start = time.monotonic()
     converted_dir = output_dir / "converted"
+    converted_dir.mkdir(parents=True, exist_ok=True)
     stem = pdf_path.stem
 
     try:
@@ -112,35 +122,48 @@ def process_single_document(
             }
 
         # ── PyMuPDF fast path for text-based depositions ─────────────
-        if doc_type in TRANSCRIPT_TYPES and is_text_based and is_text_based_pdf(str(pdf_path)):
+        # Require strong classifier confidence; otherwise the fast path
+        # silently swallows patent apps and scholarly PDFs whose monospace
+        # text triggers a weak deposition signal.
+        if (doc_type in TRANSCRIPT_TYPES and classification_confidence >= 0.30
+                and is_text_based and is_text_based_pdf(str(pdf_path))):
             logger.info("[PyMuPDF] Text-based deposition detected")
-            pymupdf_result = extract_deposition(str(pdf_path), str(converted_dir))
-            logger.info("  Extracted %d lines, %d citations",
-                       pymupdf_result["line_count"],
-                       pymupdf_result["citation_count"])
+            try:
+                pymupdf_result = extract_deposition(str(pdf_path), str(converted_dir))
+                logger.info("  Extracted %d lines, %d citations",
+                           pymupdf_result["line_count"],
+                           pymupdf_result["citation_count"])
 
-            return {
-                "file": pdf_path.name,
-                "source_path": str(pdf_path),
-                "stem": normalized,
-                "status": "OK",
-                "doc_type": DocumentType.DEPOSITION.value,
-                "md_file": Path(pymupdf_result["md_path"]).name,
-                "json_file": None,
-                "citations_count": pymupdf_result["citation_count"],
-                "coverage_pct": 100.0,
-                "type_distribution": {"transcript_line": pymupdf_result["citation_count"]},
-                "extraction_method": "pymupdf",
-                "elapsed_seconds": round(time.monotonic() - doc_start, 1),
-                "classification_confidence": classification_confidence,
-                "classification_needs_input": classification_needs_input,
-                "had_json": False,
-                "citation_degraded": False,
-                "chunks_count": 0,
-                "bates_gaps": [],
-                "bates_duplicates": [],
-                "line_gaps": [],
-            }
+                # Match sequential behavior: fall back if extraction produced no usable citations.
+                if pymupdf_result["citation_count"] == 0:
+                    raise RuntimeError("No citations extracted - non-standard page markers")
+
+                return {
+                    "file": pdf_path.name,
+                    "source_path": str(pdf_path),
+                    "stem": normalized,
+                    "status": "OK",
+                    "doc_type": (doc_type or DocumentType.DEPOSITION).value,
+                    "md_file": Path(pymupdf_result["md_path"]).name,
+                    "json_file": None,
+                    "citations_count": pymupdf_result["citation_count"],
+                    "coverage_pct": 100.0,
+                    "type_distribution": {"transcript_line": pymupdf_result["citation_count"]},
+                    "extraction_method": "pymupdf",
+                    "elapsed_seconds": round(time.monotonic() - doc_start, 1),
+                    "classification_confidence": classification_confidence,
+                    "classification_needs_input": classification_needs_input,
+                    "had_json": False,
+                    "citation_degraded": False,
+                    "chunks_count": 0,
+                    "bates_gaps": [],
+                    "bates_duplicates": [],
+                    "line_gaps": [],
+                }
+            except Exception as e:
+                logger.warning("PyMuPDF extraction failed: %s", e)
+                logger.info("Falling back to Docling conversion")
+                # Fall through to Docling path below.
 
         # ── Step 1: Conversion ───────────────────────────────────────
         logger.info("[Step 1] Converting with Docling...")
@@ -154,10 +177,18 @@ def process_single_document(
 
         if use_existing and existing_json and existing_json.exists() and existing_md.exists():
             logger.info("  Using existing converted files")
-            # Copy files (handled in main process to avoid race conditions)
             final_md = converted_dir / f"{normalized}.md"
             final_json = converted_dir / f"{normalized}.json"
-            conversion_citations = {}
+            if not final_md.exists():
+                shutil.copy2(existing_md, final_md)
+            if not final_json.exists():
+                shutil.copy2(existing_json, final_json)
+
+            existing_bates = use_existing / f"{normalized}_bates.json"
+            if existing_bates.exists():
+                target_bates = converted_dir / f"{normalized}_bates.json"
+                if not target_bates.exists():
+                    shutil.copy2(existing_bates, target_bates)
         else:
             converter = DoclingConverter(timeout=conversion_timeout)
             result = converter.convert_document(str(pdf_path), str(converted_dir))
@@ -173,8 +204,6 @@ def process_single_document(
                     "error": error_msg,
                     "elapsed_seconds": round(time.monotonic() - doc_start, 1),
                 }
-
-            conversion_citations = result.citations_found
 
             # Rename if needed
             docling_md = converted_dir / f"{stem}.md"
@@ -303,7 +332,7 @@ def process_documents_parallel(
     Args:
         pdfs: List of PDF paths to process
         output_dir: Output directory
-        normalized_stems: Mapping of original stems to normalized stems
+        normalized_stems: Mapping of path keys to normalized stems
         classifications: Pre-computed classifications from doc_classifier
         state: Pipeline state for tracking progress
         conversion_timeout: Timeout for conversion
@@ -326,13 +355,13 @@ def process_documents_parallel(
     # Filter documents based on state
     pdfs_to_process = []
     for pdf_path in pdfs:
-        stem = pdf_path.stem
-        normalized = normalized_stems.get(stem, stem.lower())
+        normalized = normalized_stems.get(_path_key(pdf_path), pdf_path.stem.lower())
         _file_size = pdf_path.stat().st_size if pdf_path.exists() else None
 
         # Compute content hash for deduplication (skip for .txt files)
         _content_hash = None
         _metadata = {}
+        _page_count = None
         if pdf_path.suffix.lower() == ".pdf":
             try:
                 _content_hash = state.compute_content_hash(pdf_path)
@@ -366,7 +395,7 @@ def process_documents_parallel(
             source_path=str(pdf_path),
             file_size_bytes=_file_size,
             content_hash=_content_hash,
-            page_count=_page_count if '_page_count' in locals() else None,
+            page_count=_page_count,
             author=_metadata.get("author"),
             creation_date=_metadata.get("creation_date"),
             modified_date=_metadata.get("modified_date"),
@@ -410,8 +439,7 @@ def process_documents_parallel(
         # Submit all jobs
         future_to_pdf = {}
         for pdf_path in pdfs_to_process:
-            stem = pdf_path.stem
-            normalized = normalized_stems.get(stem, stem.lower())
+            normalized = normalized_stems.get(_path_key(pdf_path), pdf_path.stem.lower())
 
             cr = classifications.get(normalized)
             dt = cr.doc_type if cr else DocumentType.UNKNOWN
