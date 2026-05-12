@@ -389,7 +389,7 @@ def run_pipeline(
         logger.info(state.summary())
 
     pdfs = sorted(
-        p for ext in ("*.pdf", "*.txt")
+        p for ext in ("*.pdf", "*.txt", "*.docx")
         for p in input_dir.rglob(ext)
     )
     if not pdfs:
