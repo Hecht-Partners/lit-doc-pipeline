@@ -11,7 +11,7 @@ degrade when not installed.
 import logging
 from typing import List, Optional
 
-from citation_types import SearchResult
+from lit_pipeline.citation_types import SearchResult
 
 logger = logging.getLogger(__name__)
 

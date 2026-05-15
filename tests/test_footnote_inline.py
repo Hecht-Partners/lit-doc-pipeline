@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from post_processor import PostProcessor
-from citation_types import DocumentType
+from lit_pipeline.post_processor import PostProcessor
+from lit_pipeline.citation_types import DocumentType
 
 
 @pytest.fixture

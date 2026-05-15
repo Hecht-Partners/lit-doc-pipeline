@@ -14,7 +14,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
-from citation_types import ProcessingResult, CitationData, DocumentType
+from lit_pipeline.citation_types import ProcessingResult, CitationData, DocumentType
 
 logger = logging.getLogger(__name__)
 

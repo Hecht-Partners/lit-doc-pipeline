@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from citation_types import DocumentType, Chunk
+from lit_pipeline.citation_types import DocumentType, Chunk
 
 logger = logging.getLogger(__name__)
 

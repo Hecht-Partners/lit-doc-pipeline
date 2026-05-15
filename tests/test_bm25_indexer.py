@@ -7,8 +7,8 @@ import tempfile
 import shutil
 from pathlib import Path
 
-from bm25_indexer import BM25Indexer
-from citation_types import Chunk, DocumentType
+from lit_pipeline.bm25_indexer import BM25Indexer
+from lit_pipeline.citation_types import Chunk, DocumentType
 
 
 @pytest.fixture

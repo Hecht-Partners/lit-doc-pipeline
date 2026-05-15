@@ -58,3 +58,6 @@ Thumbs.db
 # Generated indexes
 indexes/
 _Archive/
+
+# Benchmark output
+benchmark_results.json

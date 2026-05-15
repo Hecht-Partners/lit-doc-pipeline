@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from citation_types import DocumentType
-from parallel_processor import process_single_document
+from lit_pipeline.citation_types import DocumentType
+from lit_pipeline.parallel_processor import process_single_document
 
 
 class _DummyPostProcessor:
@@ -31,8 +31,8 @@ class _DummyCitationTracker:
 
 
 def test_use_existing_copies_files_in_worker(tmp_path, monkeypatch):
-    monkeypatch.setattr("parallel_processor.PostProcessor", _DummyPostProcessor)
-    monkeypatch.setattr("parallel_processor.CitationTracker", _DummyCitationTracker)
+    monkeypatch.setattr("lit_pipeline.parallel_processor.PostProcessor", _DummyPostProcessor)
+    monkeypatch.setattr("lit_pipeline.parallel_processor.CitationTracker", _DummyCitationTracker)
 
     input_pdf = tmp_path / "input" / "doc.pdf"
     input_pdf.parent.mkdir(parents=True, exist_ok=True)
@@ -61,10 +61,10 @@ def test_use_existing_copies_files_in_worker(tmp_path, monkeypatch):
 
 
 def test_pymupdf_zero_citations_falls_back_to_docling(tmp_path, monkeypatch):
-    monkeypatch.setattr("parallel_processor.PostProcessor", _DummyPostProcessor)
-    monkeypatch.setattr("parallel_processor.is_text_based_pdf", lambda _path: True)
+    monkeypatch.setattr("lit_pipeline.parallel_processor.PostProcessor", _DummyPostProcessor)
+    monkeypatch.setattr("lit_pipeline.parallel_processor.is_text_based_pdf", lambda _path: True)
     monkeypatch.setattr(
-        "parallel_processor.extract_deposition",
+        "lit_pipeline.parallel_processor.extract_deposition",
         lambda _pdf, _out: {
             "md_path": str(tmp_path / "unused.md"),
             "citation_count": 0,
@@ -87,7 +87,7 @@ def test_pymupdf_zero_citations_falls_back_to_docling(tmp_path, monkeypatch):
             md.write_text("fallback content", encoding="utf-8")
             return SimpleNamespace(md_path=str(md), errors=[], citations_found={})
 
-    monkeypatch.setattr("parallel_processor.DoclingConverter", _DummyDoclingConverter)
+    monkeypatch.setattr("lit_pipeline.parallel_processor.DoclingConverter", _DummyDoclingConverter)
 
     input_pdf = tmp_path / "input" / "hearing_doc.pdf"
     input_pdf.parent.mkdir(parents=True, exist_ok=True)
@@ -102,6 +102,7 @@ def test_pymupdf_zero_citations_falls_back_to_docling(tmp_path, monkeypatch):
         conversion_timeout=5,
         cleanup_json=False,
         use_existing=None,
+        classification_confidence=0.95,
     )
 
     assert result["status"] == "OK"
@@ -110,9 +111,9 @@ def test_pymupdf_zero_citations_falls_back_to_docling(tmp_path, monkeypatch):
 
 
 def test_pymupdf_fast_path_preserves_hearing_transcript_type(tmp_path, monkeypatch):
-    monkeypatch.setattr("parallel_processor.is_text_based_pdf", lambda _path: True)
+    monkeypatch.setattr("lit_pipeline.parallel_processor.is_text_based_pdf", lambda _path: True)
     monkeypatch.setattr(
-        "parallel_processor.extract_deposition",
+        "lit_pipeline.parallel_processor.extract_deposition",
         lambda _pdf, _out: {
             "md_path": str(tmp_path / "out" / "converted" / "hearing_doc.md"),
             "citation_count": 5,
@@ -133,6 +134,7 @@ def test_pymupdf_fast_path_preserves_hearing_transcript_type(tmp_path, monkeypat
         conversion_timeout=5,
         cleanup_json=False,
         use_existing=None,
+        classification_confidence=0.95,
     )
 
     assert result["status"] == "OK"

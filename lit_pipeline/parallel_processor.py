@@ -16,15 +16,15 @@ from typing import Dict, List, Optional
 
 from tqdm import tqdm
 
-from citation_tracker import CitationTracker
-from citation_types import DocumentType
-from doc_classifier import ClassificationResult
-from docling_converter import DoclingConverter
-from pdf_metadata import extract_pdf_metadata, get_page_count
-from pipeline_state import PipelineState
-from post_processor import PostProcessor
-from pymupdf_extractor import is_text_based_pdf, extract_deposition
-from text_extractor import is_text_transcript, extract_text_deposition
+from lit_pipeline.citation_tracker import CitationTracker
+from lit_pipeline.citation_types import DocumentType
+from lit_pipeline.doc_classifier import ClassificationResult
+from lit_pipeline.docling_converter import DoclingConverter
+from lit_pipeline.pdf_metadata import extract_pdf_metadata, get_page_count
+from lit_pipeline.pipeline_state import PipelineState
+from lit_pipeline.post_processor import PostProcessor
+from lit_pipeline.pymupdf_extractor import is_text_based_pdf, extract_deposition
+from lit_pipeline.text_extractor import is_text_transcript, extract_text_deposition
 
 # Type sets for handler routing
 TRANSCRIPT_TYPES = {DocumentType.DEPOSITION, DocumentType.HEARING_TRANSCRIPT}
@@ -125,7 +125,9 @@ def process_single_document(
         # Require strong classifier confidence; otherwise the fast path
         # silently swallows patent apps and scholarly PDFs whose monospace
         # text triggers a weak deposition signal.
-        if (doc_type in TRANSCRIPT_TYPES and classification_confidence >= 0.30
+        if (doc_type in TRANSCRIPT_TYPES
+                and classification_confidence is not None
+                and classification_confidence >= 0.30
                 and is_text_based and is_text_based_pdf(str(pdf_path))):
             logger.info("[PyMuPDF] Text-based deposition detected")
             try:

@@ -13,10 +13,10 @@ from typing import Dict, List
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from docling_converter import DoclingConverter
-from post_processor import PostProcessor
-from format_handlers import FormatHandler
-from citation_types import DocumentType
+from lit_pipeline.docling_converter import DoclingConverter
+from lit_pipeline.post_processor import PostProcessor
+from lit_pipeline.format_handlers import FormatHandler
+from lit_pipeline.citation_types import DocumentType
 
 
 class CitationCoverageTester:

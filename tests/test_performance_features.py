@@ -14,7 +14,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from index_state import IndexState, IndexedDocument
+from lit_pipeline.index_state import IndexState, IndexedDocument
 
 
 def test_incremental_indexing():

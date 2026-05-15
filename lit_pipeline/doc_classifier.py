@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import fitz  # PyMuPDF
 
-from citation_types import DocumentType
+from lit_pipeline.citation_types import DocumentType
 
 logger = logging.getLogger(__name__)
 
@@ -774,7 +774,7 @@ def classify_directory(
     Returns:
         Dict mapping normalized stem to ClassificationResult.
     """
-    from run_pipeline import normalize_stem
+    from lit_pipeline.run_pipeline import normalize_stem
 
     input_path = Path(input_dir)
     pdfs = sorted(input_path.rglob("*.pdf"))

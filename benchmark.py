@@ -28,8 +28,8 @@ from typing import Dict, List, Optional, Tuple
 # Ensure project root is on path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from bm25_indexer import BM25Indexer
-from citation_types import Chunk, DocumentType, SearchResult
+from lit_pipeline.bm25_indexer import BM25Indexer
+from lit_pipeline.citation_types import Chunk, DocumentType, SearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -327,7 +327,7 @@ def run_benchmark(
     reranker = None
     reranker_available = False
     try:
-        from reranker import Reranker
+        from lit_pipeline.reranker import Reranker
         reranker = Reranker()
         reranker_available = reranker.is_available()
         if reranker_available:

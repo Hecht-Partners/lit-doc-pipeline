@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from citation_types import CitationData, DocumentType
+from lit_pipeline.citation_types import CitationData, DocumentType
 
 logger = logging.getLogger(__name__)
 

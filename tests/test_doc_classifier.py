@@ -11,8 +11,8 @@ from unittest.mock import patch
 
 import pytest
 
-from citation_types import DocumentType
-from doc_classifier import (
+from lit_pipeline.citation_types import DocumentType
+from lit_pipeline.doc_classifier import (
     ClassificationResult,
     DocumentFingerprint,
     ProfileStore,
@@ -402,7 +402,7 @@ class TestLearningLoop:
         doc = fitz.open(str(pdf))
         max_pages = min(len(doc), 5)
         text = "\n".join(doc[i].get_text() for i in range(max_pages))
-        from doc_classifier import _extract_fingerprint
+        from lit_pipeline.doc_classifier import _extract_fingerprint
         fingerprint = _extract_fingerprint(doc, text, max_pages)
         doc.close()
 

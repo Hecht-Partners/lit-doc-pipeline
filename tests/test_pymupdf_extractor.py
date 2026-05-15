@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from pymupdf_extractor import is_text_based_pdf, extract_deposition, _detect_page_marker
+from lit_pipeline.pymupdf_extractor import is_text_based_pdf, extract_deposition, _detect_page_marker
 
 TEST_DOCS = Path(__file__).parent / "test_docs"
 ALEXANDER_PDF = TEST_DOCS / "Daniel Alexander - 10-24-2025.pdf"

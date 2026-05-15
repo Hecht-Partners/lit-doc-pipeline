@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from citation_types import DocumentType
-from config_loader import load_default_config
+from lit_pipeline.citation_types import DocumentType
+from lit_pipeline.config_loader import load_default_config
 
 
 @pytest.fixture
@@ -182,7 +182,7 @@ class TestSearchRelevance:
 
     def test_search_finds_known_document(self):
         """Search for 'TWT technology' should return Cole Report in top 5."""
-        from hybrid_retriever import HybridRetriever
+        from lit_pipeline.hybrid_retriever import HybridRetriever
 
         index_dir = "tests/pipeline_output/indexes"
         chunks_dir = "tests/pipeline_output/converted"
@@ -202,7 +202,7 @@ class TestSearchRelevance:
 
     def test_hybrid_search_better_than_bm25_alone(self):
         """Hybrid search should find results for semantic queries."""
-        from hybrid_retriever import HybridRetriever
+        from lit_pipeline.hybrid_retriever import HybridRetriever
 
         index_dir = "tests/pipeline_output/indexes"
         chunks_dir = "tests/pipeline_output/converted"
@@ -231,7 +231,7 @@ class TestConfigLoader:
 
     def test_config_file_loading(self):
         """Load from specific config file."""
-        from config_loader import ConfigLoader
+        from lit_pipeline.config_loader import ConfigLoader
 
         # Use retrieval_config.json which has bm25 settings
         config = ConfigLoader("configs/retrieval_config.json")
@@ -241,7 +241,7 @@ class TestConfigLoader:
 
     def test_config_merge_cli_args(self):
         """CLI args should override config file."""
-        from config_loader import ConfigLoader
+        from lit_pipeline.config_loader import ConfigLoader
 
         config = ConfigLoader("configs/retrieval_config.json")
 

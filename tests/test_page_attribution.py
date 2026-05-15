@@ -20,9 +20,9 @@ from pathlib import Path
 
 import pytest
 
-from chunk_documents import DocumentChunker, ChunkMetadata
-from citation_types import Chunk, DocumentType
-from lit_doc_retriever import _find_query_page, _char_pos_to_line_idx
+from lit_pipeline.chunk_documents import DocumentChunker, ChunkMetadata
+from lit_pipeline.citation_types import Chunk, DocumentType
+from lit_pipeline.lit_doc_retriever import _find_query_page, _char_pos_to_line_idx
 
 
 # ── Fixtures ────────────────────────────────────────────────────────

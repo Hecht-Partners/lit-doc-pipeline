@@ -10,7 +10,7 @@ import subprocess
 import json
 from pathlib import Path
 from typing import Dict, List, Optional
-from citation_types import ConversionResult, DocumentType
+from lit_pipeline.citation_types import ConversionResult, DocumentType
 
 
 class DoclingConverter:

@@ -407,34 +407,37 @@ ollama pull llama3.1:8b          # 4.7GB
 
 ```
 lit-doc-pipeline/
-├── lit_pipeline.py            # ⭐ MAIN CLI - Use this! (7 subcommands)
-├── run_pipeline.py            # Pipeline orchestration (steps 1-4)
-├── parallel_processor.py      # Parallel document processing
-├── pipeline_state.py          # Error handling & checkpoint/resume
-├── index_state.py             # Incremental indexing state
-├── config_loader.py           # JSON/YAML config support
-├── docling_converter.py       # PDF/DOCX conversion via Docling
-├── citation_tracker.py        # Citation reconstruction from Docling JSON
-├── citation_types.py          # Data structures (Chunk, SearchResult, etc.)
-├── pymupdf_extractor.py       # Fast path for text-based PDF depositions
-├── text_extractor.py          # Fast path for plain-text (.txt) transcripts
-├── doc_classifier.py          # Generic document type classifier (self-learning)
-├── format_handlers.py         # Document type detection
-├── post_processor.py          # Text cleaning + footnote insertion
-├── chunk_documents.py         # Section-aware chunking (chunk_all_documents)
-├── bm25_indexer.py            # TF-IDF keyword search
-├── vector_indexer.py          # ChromaDB + Ollama embeddings
-├── hybrid_retriever.py        # RRF score fusion
-├── reranker.py                # Cross-encoder reranking (bge-reranker-v2-m3, 8K context)
-├── lit_doc_retriever.py       # Legacy CLI (use lit_pipeline.py instead)
-├── llm_enrichment.py          # LLM enrichment (3 backends)
-├── benchmark.py               # Search quality benchmark (Precision@K)
+├── lit_pipeline.py                 # ⭐ MAIN CLI - Use this! (7 subcommands)
+├── benchmark.py                    # Search quality benchmark (Precision@K)
+├── lit_pipeline/                   # Package: all internal modules
+│   ├── __init__.py
+│   ├── run_pipeline.py             # Pipeline orchestration (steps 1-4)
+│   ├── parallel_processor.py       # Parallel document processing
+│   ├── pipeline_state.py           # Error handling & checkpoint/resume
+│   ├── index_state.py              # Incremental indexing state
+│   ├── config_loader.py            # JSON/YAML config support
+│   ├── docling_converter.py        # PDF/DOCX conversion via Docling
+│   ├── citation_tracker.py         # Citation reconstruction from Docling JSON
+│   ├── citation_types.py           # Data structures (Chunk, SearchResult, etc.)
+│   ├── pymupdf_extractor.py        # Fast path for text-based PDF depositions
+│   ├── text_extractor.py           # Fast path for plain-text (.txt) transcripts
+│   ├── doc_classifier.py           # Generic document type classifier (self-learning)
+│   ├── format_handlers.py          # Document type detection
+│   ├── post_processor.py           # Text cleaning + footnote insertion
+│   ├── chunk_documents.py          # Section-aware chunking (chunk_all_documents)
+│   ├── pdf_metadata.py             # PDF metadata helpers
+│   ├── bm25_indexer.py             # TF-IDF keyword search
+│   ├── vector_indexer.py           # ChromaDB + Ollama embeddings
+│   ├── hybrid_retriever.py         # RRF score fusion
+│   ├── reranker.py                 # Cross-encoder reranking (bge-reranker-v2-m3, 8K context)
+│   ├── lit_doc_retriever.py        # Legacy CLI / index-builder (use lit_pipeline.py instead)
+│   └── llm_enrichment.py           # LLM enrichment (3 backends)
 ├── configs/
-│   ├── default_config.json    # Chunking, Bates patterns, Docling settings
-│   ├── retrieval_config.json  # Search configuration
-│   └── enrichment_config.json # LLM backend settings
+│   ├── default_config.json         # Chunking, Bates patterns, Docling settings
+│   ├── retrieval_config.json       # Search configuration
+│   └── enrichment_config.json      # LLM backend settings
 ├── tests/
-│   ├── test_docs/             # 7 test PDFs (87MB)
+│   ├── test_docs/                  # 7 test PDFs (87MB)
 │   ├── test_citation_tracker.py
 │   ├── test_chunk_documents.py
 │   ├── test_hybrid_retriever.py
@@ -442,12 +445,17 @@ lit-doc-pipeline/
 │   └── ... (292 tests total)
 └── _Archive/
     └── LITIGATION_DOCUMENT_PIPELINE_TRD.md  # Complete spec
+```
+
+**Note on `lit_pipeline.py` (script) vs `lit_pipeline/` (package):** Python
+disambiguates: running `python lit_pipeline.py` executes the script as
+`__main__`, while `from lit_pipeline.foo import X` imports from the
+package directory. The script never imports its own filename.
 
 **Key Entry Points:**
-- `lit_pipeline.py` - Main CLI (use this for all operations)
-- `run_pipeline.py` - Called by lit_pipeline.py for processing
-- `chunk_documents.py` - Contains `chunk_all_documents()` function
-```
+- `lit_pipeline.py` - Main CLI at repo root (use this for all operations)
+- `lit_pipeline.run_pipeline` - Pipeline orchestration imported by the CLI
+- `lit_pipeline.chunk_documents` - Contains `chunk_all_documents()` function
 
 ## Testing Strategy
 

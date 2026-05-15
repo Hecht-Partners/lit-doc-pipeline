@@ -18,7 +18,7 @@ from typing import Dict, List, Optional, Tuple
 
 import fitz  # PyMuPDF
 
-from citation_types import CitationData
+from lit_pipeline.citation_types import CitationData
 
 logger = logging.getLogger(__name__)
 

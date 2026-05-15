@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
 
-from index_state import IndexState
-from lit_doc_retriever import build_indexes
-from post_processor import PostProcessor
+from lit_pipeline.index_state import IndexState
+from lit_pipeline.lit_doc_retriever import build_indexes
+from lit_pipeline.post_processor import PostProcessor
 
 
 def test_build_indexes_tracks_chunk_count_per_document(tmp_path, monkeypatch):
@@ -50,7 +50,7 @@ def test_build_indexes_tracks_chunk_count_per_document(tmp_path, monkeypatch):
             raise AssertionError("Vector index should not be built in this test")
 
     monkeypatch.setattr(
-        "lit_doc_retriever._import_indexers",
+        "lit_pipeline.lit_doc_retriever._import_indexers",
         lambda: (_DummyBM25Indexer, _DummyVectorIndexer, None),
     )
 

@@ -17,8 +17,8 @@ from typing import Optional
 
 from tqdm import tqdm
 
-from citation_types import Chunk, DocumentType
-from index_state import IndexState
+from lit_pipeline.citation_types import Chunk, DocumentType
+from lit_pipeline.index_state import IndexState
 
 
 def _should_disable_tqdm():
@@ -31,9 +31,9 @@ def _should_disable_tqdm():
 # Delay imports to avoid chromadb import issues
 def _import_indexers():
     """Lazy import of indexers to avoid chromadb import-time errors."""
-    from bm25_indexer import BM25Indexer
-    from vector_indexer import VectorIndexer
-    from hybrid_retriever import HybridRetriever
+    from lit_pipeline.bm25_indexer import BM25Indexer
+    from lit_pipeline.vector_indexer import VectorIndexer
+    from lit_pipeline.hybrid_retriever import HybridRetriever
     return BM25Indexer, VectorIndexer, HybridRetriever
 
 # Configure logging

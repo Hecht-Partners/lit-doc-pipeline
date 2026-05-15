@@ -15,7 +15,7 @@ from collections import defaultdict
 
 from tqdm import tqdm
 
-from citation_types import Chunk, SearchResult, DocumentType
+from lit_pipeline.citation_types import Chunk, SearchResult, DocumentType
 
 
 def _should_disable_tqdm():
@@ -28,8 +28,8 @@ def _should_disable_tqdm():
 # Delay imports to avoid chromadb import issues at module load time
 def _import_indexers():
     """Lazy import of indexers."""
-    from bm25_indexer import BM25Indexer
-    from vector_indexer import VectorIndexer
+    from lit_pipeline.bm25_indexer import BM25Indexer
+    from lit_pipeline.vector_indexer import VectorIndexer
     return BM25Indexer, VectorIndexer
 
 logger = logging.getLogger(__name__)
@@ -279,7 +279,7 @@ class HybridRetriever:
         if rerank and results:
             final_k = rerank_top_k if rerank_top_k is not None else top_k
             try:
-                from reranker import Reranker
+                from lit_pipeline.reranker import Reranker
                 reranker = Reranker()
                 if reranker.is_available():
                     results = reranker.rerank(query, results, top_k=final_k)

@@ -12,7 +12,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from llm_enrichment import (
+from lit_pipeline.llm_enrichment import (
     VALID_CATEGORIES,
     VALID_RELEVANCE,
     CaseContext,

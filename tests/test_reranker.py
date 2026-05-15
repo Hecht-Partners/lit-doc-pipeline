@@ -9,8 +9,8 @@ import shutil
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from citation_types import Chunk, SearchResult, DocumentType
-from reranker import Reranker
+from lit_pipeline.citation_types import Chunk, SearchResult, DocumentType
+from lit_pipeline.reranker import Reranker
 
 
 def _make_result(chunk_id: str, text: str, score: float, rank: int) -> SearchResult:
@@ -127,8 +127,8 @@ def test_rerank_fallback_when_unavailable():
 
 def test_search_with_rerank_flag():
     """End-to-end: HybridRetriever.search(rerank=True) applies reranking."""
-    from bm25_indexer import BM25Indexer
-    from hybrid_retriever import HybridRetriever
+    from lit_pipeline.bm25_indexer import BM25Indexer
+    from lit_pipeline.hybrid_retriever import HybridRetriever
 
     index_dir = tempfile.mkdtemp()
     chunks_dir = tempfile.mkdtemp()
@@ -185,11 +185,11 @@ def test_search_with_rerank_flag():
         # Score the second chunk higher to prove reranking works
         mock_model.predict.return_value = [0.3, 0.9]
 
-        with patch("reranker.Reranker._load_model") as mock_load:
+        with patch("lit_pipeline.reranker.Reranker._load_model") as mock_load:
             mock_load.return_value = True
-            with patch("reranker.Reranker.__init__", lambda self, **kw: None):
-                with patch("reranker.Reranker.is_available", return_value=True):
-                    with patch("reranker.Reranker.rerank") as mock_rerank:
+            with patch("lit_pipeline.reranker.Reranker.__init__", lambda self, **kw: None):
+                with patch("lit_pipeline.reranker.Reranker.is_available", return_value=True):
+                    with patch("lit_pipeline.reranker.Reranker.rerank") as mock_rerank:
                         # Simulate what rerank does
                         def fake_rerank(query, results, top_k=10):
                             scores = [0.3, 0.9]

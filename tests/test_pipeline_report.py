@@ -11,7 +11,7 @@ import pytest
 # Ensure test env is set so tqdm is disabled
 os.environ.setdefault("PYTEST_CURRENT_TEST", "1")
 
-from run_pipeline import generate_pipeline_report, _format_duration
+from lit_pipeline.run_pipeline import generate_pipeline_report, _format_duration
 
 
 # ── Helpers ───────────────────────────────────────────────────────────

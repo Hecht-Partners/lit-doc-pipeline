@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 def cmd_process(args):
     """Run the document processing pipeline (Steps 1-3)."""
-    from run_pipeline import run_pipeline
+    from lit_pipeline.run_pipeline import run_pipeline
 
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir)
@@ -58,13 +58,13 @@ def cmd_process(args):
     # Auto-index after processing (default behavior)
     if getattr(args, 'index', True):
         logger.info("Building search indexes (BM25 + vector)...")
-        from lit_doc_retriever import build_indexes
+        from lit_pipeline.lit_doc_retriever import build_indexes
         build_indexes(str(output_dir), config_path=None, force=False)
 
 
 def cmd_index(args):
     """Build search indexes from processed chunks."""
-    from lit_doc_retriever import build_indexes
+    from lit_pipeline.lit_doc_retriever import build_indexes
 
     output_dir = args.output_dir
     config_path = args.config
@@ -75,7 +75,7 @@ def cmd_index(args):
 
 def cmd_search(args):
     """Search indexed documents."""
-    from lit_doc_retriever import search_and_display
+    from lit_pipeline.lit_doc_retriever import search_and_display
 
     index_dir = args.index_dir
     query = args.query
@@ -88,14 +88,14 @@ def cmd_search(args):
 
 def cmd_stats(args):
     """Show index statistics."""
-    from lit_doc_retriever import show_stats
+    from lit_pipeline.lit_doc_retriever import show_stats
 
     show_stats(args.index_dir)
 
 
 def cmd_classify(args):
     """Classify documents by type without processing."""
-    from doc_classifier import classify_directory, ProfileStore
+    from lit_pipeline.doc_classifier import classify_directory, ProfileStore
 
     input_dir = Path(args.input_dir)
     if not input_dir.exists():
@@ -154,7 +154,7 @@ def cmd_remove(args):
     indexes_dir = output_dir / "indexes"
 
     # Normalize the stem
-    from run_pipeline import normalize_stem
+    from lit_pipeline.run_pipeline import normalize_stem
     stem = normalize_stem(args.stem)
 
     # ── 1. Find and delete per-document files ────────────────────────
@@ -261,7 +261,7 @@ def cmd_remove(args):
         print("ChromaDB: no index directory found")
 
     # ── 4. Remove from pipeline state ────────────────────────────────
-    from pipeline_state import PipelineState
+    from lit_pipeline.pipeline_state import PipelineState
     pipeline_state = PipelineState(output_dir)
     if stem in pipeline_state.documents:
         del pipeline_state.documents[stem]
@@ -269,7 +269,7 @@ def cmd_remove(args):
         print(f"Pipeline state: removed '{stem}'")
 
     # ── 5. Remove from index state ───────────────────────────────────
-    from index_state import IndexState
+    from lit_pipeline.index_state import IndexState
     index_state = IndexState(indexes_dir)
     chunks_filename = f"{stem}_chunks.json"
     if chunks_filename in index_state.documents:
@@ -288,7 +288,7 @@ def cmd_remove(args):
 
 def cmd_enrich(args):
     """Run LLM enrichment on chunk files."""
-    from llm_enrichment import LLMEnricher, CaseContext
+    from lit_pipeline.llm_enrichment import LLMEnricher, CaseContext
 
     chunks_dir = Path(args.chunks_dir)
     if not chunks_dir.exists():
@@ -605,7 +605,7 @@ Examples:
 
     # Load config if specified
     if hasattr(args, 'config') and args.config:
-        from config_loader import ConfigLoader
+        from lit_pipeline.config_loader import ConfigLoader
         config = ConfigLoader(args.config)
         # Make config available to command handlers
         args._config = config

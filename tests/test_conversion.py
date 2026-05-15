@@ -9,9 +9,9 @@ Usage:
 
 import sys
 from pathlib import Path
-from docling_converter import DoclingConverter
-from format_handlers import FormatHandler
-from post_processor import PostProcessor
+from lit_pipeline.docling_converter import DoclingConverter
+from lit_pipeline.format_handlers import FormatHandler
+from lit_pipeline.post_processor import PostProcessor
 
 
 def main():

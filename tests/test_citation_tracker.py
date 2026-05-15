@@ -15,8 +15,8 @@ import pytest
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from citation_tracker import CitationTracker, PageLayout, reconstruct_citations
-from citation_types import DocumentType
+from lit_pipeline.citation_tracker import CitationTracker, PageLayout, reconstruct_citations
+from lit_pipeline.citation_types import DocumentType
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────

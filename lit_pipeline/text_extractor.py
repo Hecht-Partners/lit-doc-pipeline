@@ -18,7 +18,7 @@ import logging
 import re
 from pathlib import Path
 
-from citation_types import CitationData
+from lit_pipeline.citation_types import CitationData
 
 logger = logging.getLogger(__name__)
 

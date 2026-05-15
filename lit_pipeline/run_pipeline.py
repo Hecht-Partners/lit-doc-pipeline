@@ -23,23 +23,23 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from citation_tracker import CitationTracker
-from citation_types import DocumentType
-from chunk_documents import chunk_all_documents
-from doc_classifier import (
+from lit_pipeline.citation_tracker import CitationTracker
+from lit_pipeline.citation_types import DocumentType
+from lit_pipeline.chunk_documents import chunk_all_documents
+from lit_pipeline.doc_classifier import (
     classify_directory,
     classify_document,
     ProfileStore,
     ClassificationResult,
     is_condensed_transcript,
 )
-from docling_converter import DoclingConverter
-from parallel_processor import process_documents_parallel, get_optimal_worker_count
-from pdf_metadata import extract_pdf_metadata, get_page_count
-from pipeline_state import PipelineState
-from post_processor import PostProcessor
-from pymupdf_extractor import is_text_based_pdf, extract_deposition
-from text_extractor import is_text_transcript, extract_text_deposition
+from lit_pipeline.docling_converter import DoclingConverter
+from lit_pipeline.parallel_processor import process_documents_parallel, get_optimal_worker_count
+from lit_pipeline.pdf_metadata import extract_pdf_metadata, get_page_count
+from lit_pipeline.pipeline_state import PipelineState
+from lit_pipeline.post_processor import PostProcessor
+from lit_pipeline.pymupdf_extractor import is_text_based_pdf, extract_deposition
+from lit_pipeline.text_extractor import is_text_transcript, extract_text_deposition
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1048,7 +1048,7 @@ def run_pipeline(
         logger.info("[Step 5] LLM Enrichment (backend: %s)", enrich_backend)
 
         try:
-            from llm_enrichment import LLMEnricher, CaseContext
+            from lit_pipeline.llm_enrichment import LLMEnricher, CaseContext
 
             case_context = CaseContext(
                 case_type=case_type,

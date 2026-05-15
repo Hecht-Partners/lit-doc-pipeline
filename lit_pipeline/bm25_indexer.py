@@ -12,7 +12,7 @@ from typing import List, Tuple, Optional
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-from citation_types import Chunk
+from lit_pipeline.citation_types import Chunk
 
 logger = logging.getLogger(__name__)
 

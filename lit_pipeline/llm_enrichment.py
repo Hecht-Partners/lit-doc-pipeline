@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Any
 
 from tqdm import tqdm
 
-from citation_types import Chunk, DocumentType
+from lit_pipeline.citation_types import Chunk, DocumentType
 
 logger = logging.getLogger(__name__)
 

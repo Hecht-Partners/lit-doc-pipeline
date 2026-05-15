@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from chunk_documents import DocumentChunker
-from citation_types import DocumentType
+from lit_pipeline.chunk_documents import DocumentChunker
+from lit_pipeline.citation_types import DocumentType
 
 
 CONVERTED_DIR = Path(__file__).parent.parent / "tests" / "pipeline_output" / "converted"

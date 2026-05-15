@@ -14,7 +14,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from pipeline_state import PipelineState, DocumentState
+from lit_pipeline.pipeline_state import PipelineState, DocumentState
 
 
 def test_state_tracking():

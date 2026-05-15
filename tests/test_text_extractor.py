@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from text_extractor import is_text_transcript, extract_text_deposition, _normalize_stem
+from lit_pipeline.text_extractor import is_text_transcript, extract_text_deposition, _normalize_stem
 
 
 # ── Helpers ──────────────────────────────────────────────────────────

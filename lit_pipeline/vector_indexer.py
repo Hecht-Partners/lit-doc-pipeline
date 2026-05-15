@@ -12,7 +12,7 @@ import requests
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Set
 
-from citation_types import Chunk
+from lit_pipeline.citation_types import Chunk
 
 logger = logging.getLogger(__name__)
 
