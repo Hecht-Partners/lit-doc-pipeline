@@ -1,6 +1,6 @@
 # Git Workflow with `gh` CLI
 
-**Repo:** https://github.com/maximprice/lit-doc-pipeline
+**Repo:** https://github.com/Hecht-Partners/lit-doc-pipeline
 **Remote:** `origin` (HTTPS)
 **Default branch:** `main`
 
@@ -11,7 +11,7 @@
 gh auth login
 
 # Clone the repo
-gh repo clone maximprice/lit-doc-pipeline
+gh repo clone Hecht-Partners/lit-doc-pipeline
 ```
 
 ## Daily Workflow
