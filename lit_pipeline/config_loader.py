@@ -163,7 +163,11 @@ def load_default_config() -> Dict[str, Any]:
         "bm25": {
             "k1": 1.5,
             "b": 0.75,
-            "max_features": 10000,
+            # None = uncapped vocabulary. A cap silently drops the rarest
+            # terms — in litigation that's the proper names (party / deponent
+            # surnames) that are the most valuable single-token searches.
+            # See BM25Indexer.__init__ docstring for the recall measurement.
+            "max_features": None,
             "ngram_range": [1, 2]
         },
         "chroma": {

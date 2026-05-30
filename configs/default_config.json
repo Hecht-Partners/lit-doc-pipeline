@@ -5,6 +5,12 @@
     "target_chunk_chars": 8000,
     "overlap_paragraphs": 3
   },
+  "bm25": {
+    "k1": 1.5,
+    "b": 0.75,
+    "max_features": null,
+    "ngram_range": [1, 2]
+  },
   "bates_patterns": [
     "INTEL_PROX_\\d{5,11}",
     "PROX_INTEL-\\d{5,11}",

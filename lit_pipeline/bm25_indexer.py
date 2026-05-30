@@ -30,7 +30,7 @@ class BM25Indexer:
         index_dir: str,
         k1: float = 1.5,
         b: float = 0.75,
-        max_features: int = 10000,
+        max_features: Optional[int] = None,
         ngram_range: Tuple[int, int] = (1, 2)
     ):
         """
@@ -40,7 +40,16 @@ class BM25Indexer:
             index_dir: Directory to store index files
             k1: BM25 term frequency saturation parameter
             b: BM25 length normalization parameter
-            max_features: Maximum vocabulary size
+            max_features: Maximum vocabulary size. Default None = uncapped.
+                A cap silently drops the least-frequent terms, which in a
+                litigation corpus are exactly the rare proper names (party
+                names, deponent surnames, e.g. "virtamove", "etchegoyen") that
+                are the highest-value single-token searches. Empirically a
+                10k cap dropped 5 of 6 such names on the Edge v. MS corpus;
+                only None retained them. Uncapped grows the index (~6.5M
+                features / ~1GB pkl on an 88k-chunk corpus) but build time is
+                effectively unchanged. Set a cap in config only if index size
+                becomes a problem and rare-term recall is not needed.
             ngram_range: Range of n-grams (1,2) = unigrams + bigrams
         """
         self.index_dir = Path(index_dir)

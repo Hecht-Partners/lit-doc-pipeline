@@ -195,7 +195,7 @@ def build_indexes(output_dir: str, config_path: Optional[str] = None, force: boo
         index_dir=str(index_dir),
         k1=bm25_config.get("k1", 1.5),
         b=bm25_config.get("b", 0.75),
-        max_features=bm25_config.get("max_features", 10000),
+        max_features=bm25_config.get("max_features", None),
         ngram_range=tuple(bm25_config.get("ngram_range", [1, 2]))
     )
 

@@ -2,7 +2,7 @@
   "bm25": {
     "k1": 1.5,
     "b": 0.75,
-    "max_features": 10000,
+    "max_features": null,
     "ngram_range": [1, 2]
   },
   "chroma": {
