@@ -25,6 +25,53 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def cmd_loadfile(args):
+    """Ingest Concordance-style production(s) from vendor load files.
+
+    Preferred over `process` for productions delivered with .dat/.opt load
+    files and extracted TEXT: vendor text is higher fidelity than re-OCR, and
+    page boundaries are recovered (vendor form feeds, or Tesseract-anchor
+    alignment against the production TIFs) so chunks carry per-page Bates
+    citations.
+    """
+    from lit_pipeline.loadfile_ingest import ingest_tree
+
+    input_dir = Path(args.input_dir)
+    output_dir = Path(args.output_dir)
+    if not input_dir.exists():
+        logger.error("Input directory not found: %s", input_dir)
+        sys.exit(1)
+
+    all_stats = ingest_tree(
+        input_dir,
+        output_dir,
+        output_dir / "loadfile_meta",
+        run_chunker=True,
+        paginate=getattr(args, "paginate", True),
+        ocr_cache=Path(args.ocr_cache) if getattr(args, "ocr_cache", None) else None,
+    )
+
+    for stats in all_stats:
+        logger.info(
+            "%s: %d docs (%d text, %d native, %d skipped) — pagination %s, %d flagged",
+            stats["production"], stats["total_records"], stats["text_route"],
+            stats["native_route"], stats["skipped_no_content"],
+            stats["pagination"], stats["pagination_flagged"],
+        )
+    flagged_total = sum(s["pagination_flagged"] + s["skipped_no_content"] for s in all_stats)
+    if flagged_total:
+        logger.warning(
+            "%d documents flagged — see flagged_*.json under %s; their cites "
+            "fall back to document-level Bates ranges",
+            flagged_total, output_dir / "loadfile_meta",
+        )
+
+    if getattr(args, "index", True):
+        logger.info("Building search indexes (BM25 + vector)...")
+        from lit_pipeline.lit_doc_retriever import build_indexes
+        build_indexes(str(output_dir), config_path=None, force=False)
+
+
 def cmd_process(args):
     """Run the document processing pipeline (Steps 1-3)."""
     from lit_pipeline.run_pipeline import run_pipeline
@@ -36,6 +83,22 @@ def cmd_process(args):
     if not input_dir.exists():
         logger.error("Input directory not found: %s", input_dir)
         sys.exit(1)
+
+    # Load-file productions have vendor-extracted text that beats re-OCR.
+    # When .dat load files are present, route to the load-file ingest unless
+    # the user explicitly opts out.
+    if getattr(args, "loadfile", True) and input_dir.is_dir():
+        from lit_pipeline.loadfile_ingest import find_productions
+        pairs = find_productions(input_dir)
+        if pairs:
+            logger.info(
+                "Load files detected (%s) — using load-file ingest, the "
+                "preferred path for vendor productions. Pass --no-loadfile "
+                "to force OCR conversion.",
+                ", ".join(dat.stem for dat, _ in pairs),
+            )
+            cmd_loadfile(args)
+            return
 
     run_pipeline(
         input_dir=input_dir,
@@ -456,6 +519,52 @@ Examples:
         default=True,
         help="Skip building search indexes after processing (by default, BM25 and vector indexes are built automatically)"
     )
+    process_parser.add_argument(
+        "--no-loadfile",
+        dest="loadfile",
+        action="store_false",
+        default=True,
+        help="Force OCR conversion even when .dat load files are present (by default, load-file productions route to the load-file ingest)"
+    )
+
+    # ── Loadfile command ─────────────────────────────────────────────────
+    loadfile_parser = subparsers.add_parser(
+        "loadfile",
+        help="Ingest vendor production(s) via Concordance load files (preferred for productions)",
+        description=(
+            "Ingest productions delivered with .dat/.opt load files and extracted TEXT. "
+            "Uses vendor text directly (no OCR conversion) and recovers page boundaries "
+            "so chunks carry per-page Bates citations; unresolvable documents are "
+            "flagged and keep document-level cites."
+        ),
+    )
+    loadfile_parser.add_argument(
+        "input_dir",
+        help="Production dir or delivery root containing production(s) and their load files"
+    )
+    loadfile_parser.add_argument(
+        "output_dir",
+        help="Directory for pipeline output"
+    )
+    loadfile_parser.add_argument(
+        "--no-paginate",
+        dest="paginate",
+        action="store_false",
+        default=True,
+        help="Skip page-boundary recovery (all cites document-level)"
+    )
+    loadfile_parser.add_argument(
+        "--ocr-cache",
+        default=None,
+        help="Directory for cached per-page OCR (default: <output_dir>/.ocr_cache)"
+    )
+    loadfile_parser.add_argument(
+        "--no-index",
+        dest="index",
+        action="store_false",
+        default=True,
+        help="Skip building search indexes after ingest"
+    )
 
     # ── Classify command ────────────────────────────────────────────────
     classify_parser = subparsers.add_parser(
@@ -619,6 +728,8 @@ Examples:
     # Route to command handlers
     if args.command == "process":
         cmd_process(args)
+    elif args.command == "loadfile":
+        cmd_loadfile(args)
     elif args.command == "classify":
         cmd_classify(args)
     elif args.command == "index":

@@ -30,6 +30,37 @@ Before starting, gather these inputs (ask only what's missing — don't re-ask i
 | **Build search indexes after?** | BM25 + vector indexes are built automatically after processing; use `--no-index` to skip | Auto (default) |
 | **Run LLM enrichment?** | Adds summaries/categories/relevance — slow, optional | No |
 
+### 1a. Vendor Productions with Load Files — Use `loadfile`, Not `process`
+
+If the input is a vendor production delivered with Concordance load files
+(.dat/.opt, TEXT/, IMAGES/, NATIVES/ folders), do NOT route it through
+Docling. The `loadfile` command ingests the vendor-extracted text directly
+(higher fidelity than re-OCR, ~100x faster) and recovers page boundaries so
+chunks carry per-page Bates citations:
+
+```bash
+.venv/bin/python lit_pipeline.py loadfile <DELIVERY_ROOT> <OUTPUT_DIR>
+```
+
+- `<DELIVERY_ROOT>` can hold several productions plus a `load files/` dir —
+  each .dat is discovered and matched to its production folder.
+- `process` auto-detects .dat load files and routes here on its own; pass
+  `--no-loadfile` to force OCR conversion instead.
+- Page boundaries: vendor form feeds when they match the produced page
+  count; otherwise per-page Tesseract OCR of the TIFs is aligned against
+  the vendor text (anchor + LIS algorithm in `page_align.py`, benchmarked
+  0.982 mean page accuracy vs vendor ground truth). Requires `tesseract`
+  on PATH (`brew install tesseract`); OCR is cached in
+  `<OUTPUT_DIR>/.ocr_cache`.
+- **Citation-safety contract:** documents that can't be paginated safely are
+  ingested with document-level Bates cites and listed in
+  `<OUTPUT_DIR>/loadfile_meta/<PROD>/flagged_pagination.json`. Review that
+  file after every run and tell the user which documents have
+  document-level (not page-level) cites and why.
+- Per-production metadata (manifest with custodian/from/to/subject/date per
+  doc, ingest stats) lands in `<OUTPUT_DIR>/loadfile_meta/<PROD>/` —
+  useful for case manifests and review protocols.
+
 ### 2. Recommended Command (Large Corpus)
 
 For a production run on hundreds of documents:
@@ -316,10 +347,12 @@ To surgically remove a processed document from all output files and search index
   "card_id": "unique-id",
   "source": "document.pdf",
   "doc_type": "deposition|patent|expert_report|pleading|exhibit",
-  "core_text": "...",
+  "core_text": "[PAGE:14 | INTEL_PROX_00001784]\n...",
   "pages": [14, 15],
   "citation": {
     "pdf_pages": [14, 15],
+    "page_map": [14, 14, 15],
+    "page_spans": [{"page": 14, "line_start": 1, "line_end": 2}, {"page": 15, "line_start": 3, "line_end": 3}],
     "transcript_lines": {"14": [5, 25], "15": [1, 12]},
     "column_lines": {"column": 3, "lines": [45, 55]},
     "paragraph_numbers": [42],
@@ -330,6 +363,16 @@ To surgically remove a processed document from all output files and search index
   "relevance_score": "high|medium|low"
 }
 ```
+
+**Pagination precision (v1.2.0):** non-transcript `core_text` carries inline
+`[PAGE:N]` / `[PAGE:N | BATES]` marker lines at every page transition — cite
+the page a quote sits under; never infer a page from text position.
+`citation.page_spans` maps 1-indexed `core_text` line ranges to pages;
+`page_map` stays aligned 1:1 with `core_text` lines. `citation_string`
+preserves page gaps (`pp. 1, 6, 8-10`). For productions named
+`{BEGBATES}-{ENDBATES} title.pdf` with no footer-extractable Bates, per-page
+Bates stamps are derived from the filename range when it exactly matches the
+page count.
 
 ### Citation Metadata File (`_citations.json`)
 ```json

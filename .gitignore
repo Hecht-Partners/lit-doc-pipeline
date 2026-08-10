@@ -61,3 +61,7 @@ _Archive/
 
 # Benchmark output
 benchmark_results.json
+
+# Per-page OCR alignment caches (prototype + corpus-level)
+prototypes/loadfile-page-align/ocr_cache/
+.ocr_cache/
