@@ -27,6 +27,57 @@ DEFAULT_MAX_TOKENS = 1200    # Hard limit before forcing split
 DEFAULT_OVERLAP_TOKENS = 100  # Overlap between chunks
 CHARS_PER_TOKEN = 4          # Rough estimate: 1 token ≈ 4 characters
 
+# Filename Bates-range pattern: "ABBOTT0000001-0000012 ..." / "abbott0000001_0000012_..."
+# Group 1 = prefix, 2 = start digits, 3 = end digits (optionally re-prefixed).
+FILENAME_BATES_RE = re.compile(
+    r"^([A-Za-z]{2,10})[ _-]?(\d{5,10})\s*[-_– ]\s*(?:[A-Za-z]{2,10}[ _-]?)?(\d{5,10})(?!\d)"
+)
+
+
+def format_page_ranges(pages) -> str:
+    """Format a collection of page numbers as a precise citation fragment.
+
+    Consecutive runs collapse to ranges; gaps are preserved instead of being
+    swallowed into a misleading min-max span:
+        [1, 6, 8, 9, 10] -> "pp. 1, 6, 8-10"
+        [4]              -> "p. 4"
+    """
+    uniq = sorted({p for p in pages if p is not None})
+    if not uniq:
+        return ""
+    runs = []
+    start = prev = uniq[0]
+    for p in uniq[1:]:
+        if p == prev + 1:
+            prev = p
+            continue
+        runs.append((start, prev))
+        start = prev = p
+    runs.append((start, prev))
+    parts = [f"{a}" if a == b else f"{a}-{b}" for a, b in runs]
+    label = "p." if len(uniq) == 1 else "pp."
+    return f"{label} {', '.join(parts)}"
+
+
+def compute_page_spans(page_map: List[Optional[int]]) -> List[dict]:
+    """Compress a per-line page_map into contiguous line-range spans.
+
+    Lines are 1-indexed into core_text; lines with unknown page (None) are
+    omitted. Example: [1, 1, 6, 6, 1] ->
+        [{"page": 1, "line_start": 1, "line_end": 2},
+         {"page": 6, "line_start": 3, "line_end": 4},
+         {"page": 1, "line_start": 5, "line_end": 5}]
+    """
+    spans: List[dict] = []
+    for i, page in enumerate(page_map, start=1):
+        if page is None:
+            continue
+        if spans and spans[-1]["page"] == page and spans[-1]["line_end"] == i - 1:
+            spans[-1]["line_end"] = i
+        else:
+            spans.append({"page": page, "line_start": i, "line_end": i})
+    return spans
+
 
 @dataclass
 class ChunkMetadata:
@@ -103,6 +154,12 @@ class DocumentChunker:
         if not md_content or not citations:
             logger.warning("Missing inputs for %s", stem)
             return []
+
+        # Productions often carry no extractable Bates in page footers but
+        # encode the range in the filename; derive one stamp per page so
+        # chunks get precise Bates pinpoints (no-op when Bates already exist
+        # or the filename range doesn't match the page count).
+        self.derive_bates_by_page(source_file or stem, citations)
 
         # Parse markdown into sections
         sections = self._parse_markdown(md_content, doc_type)
@@ -837,6 +894,106 @@ class DocumentChunker:
 
         return chunks
 
+    # ── Page Precision Helpers ───────────────────────────────────────
+
+    @staticmethod
+    def _insert_page_markers(
+        text: str,
+        page_map: List[Optional[int]],
+        bates_map: Optional[List[Optional[str]]],
+    ) -> Tuple[str, List[Optional[int]], Optional[List[Optional[str]]]]:
+        """Insert explicit [PAGE:N] marker lines at every page transition.
+
+        The markers make pagination directly readable in core_text so a
+        reviewing LLM never has to infer a quote's page from text position.
+        Marker lines inherit the page (and Bates) of the line they precede,
+        keeping page_map/bates_map aligned 1:1 with core_text lines.
+
+        If page_map does not align with the text's lines, the input is
+        returned unchanged (defensive: never corrupt alignment).
+        """
+        lines = text.split("\n")
+        if len(lines) != len(page_map):
+            logger.warning(
+                "page_map length %d != line count %d; skipping page markers",
+                len(page_map), len(lines),
+            )
+            return text, page_map, bates_map
+        have_bates = bool(bates_map) and len(bates_map) == len(lines)
+
+        out_lines: List[str] = []
+        out_pages: List[Optional[int]] = []
+        out_bates: List[Optional[str]] = []
+        current_page: Optional[int] = None
+
+        for i, line in enumerate(lines):
+            page = page_map[i]
+            bates = bates_map[i] if have_bates else None
+            if page is not None and page != current_page:
+                marker = f"[PAGE:{page} | {bates}]" if bates else f"[PAGE:{page}]"
+                out_lines.append(marker)
+                out_pages.append(page)
+                out_bates.append(bates)
+                current_page = page
+            out_lines.append(line)
+            out_pages.append(page)
+            out_bates.append(bates)
+
+        return (
+            "\n".join(out_lines),
+            out_pages,
+            out_bates if have_bates else bates_map,
+        )
+
+    @staticmethod
+    def derive_bates_by_page(
+        source_name: str,
+        citations: dict,
+    ) -> int:
+        """Derive per-page Bates stamps from a filename-encoded Bates range.
+
+        Productions are conventionally named "{BEGBATES}-{ENDBATES} {title}"
+        (e.g. "ABBOTT0000001-0000012 I3 DDD.pdf"). When no Bates stamps were
+        extracted from page footers AND the filename range exactly matches the
+        document's page count (one stamp per page), fill each citation's
+        bates as prefix + (start + page - 1), preserving zero-padding.
+
+        Mutates the citations dict in place. Returns the number of citation
+        entries updated (0 when the guard fails or Bates already present).
+        """
+        if any(cit.get("bates") for cit in citations.values()):
+            return 0
+
+        match = FILENAME_BATES_RE.match(Path(source_name).name)
+        if not match:
+            return 0
+        prefix, start_str, end_str = match.groups()
+        start, end = int(start_str), int(end_str)
+        width = len(start_str)
+
+        pages = [cit.get("page") for cit in citations.values()]
+        pages = [p for p in pages if p is not None]
+        if not pages:
+            return 0
+        page_count = max(pages)
+        if end - start + 1 != page_count or page_count < 1:
+            return 0
+
+        prefix = prefix.upper()
+        updated = 0
+        for cit in citations.values():
+            page = cit.get("page")
+            if page is None:
+                continue
+            cit["bates"] = f"{prefix}{start + page - 1:0{width}d}"
+            updated += 1
+        if updated:
+            logger.info(
+                "Derived per-page Bates %s%s-%s from filename for %d citation entries",
+                prefix, start_str, end_str, updated,
+            )
+        return updated
+
     # ── Metadata Helpers ─────────────────────────────────────────────
 
     def _build_line_maps(
@@ -935,6 +1092,25 @@ class DocumentChunker:
         # Generate chunk ID
         chunk_id = f"{stem}_chunk_{chunk_idx:04d}"
 
+        # Insert explicit [PAGE:N] markers so pagination is readable inline.
+        # Transcripts are excluded: they cite transcript page:line, and their
+        # PDF pages (often 4-up condensed) would mislead more than help.
+        if page_map and doc_type not in self.TRANSCRIPT_TYPES:
+            text, page_map, bates_map = self._insert_page_markers(
+                text, page_map, bates_map
+            )
+
+        # Reconcile chunk-level page/bates sets with the per-line maps, which
+        # are the authoritative source when present.
+        if page_map:
+            map_pages = [p for p in page_map if p is not None]
+            if map_pages:
+                metadata.pages = sorted(set(map_pages))
+        if bates_map:
+            map_bates = list(dict.fromkeys(b for b in bates_map if b))
+            if map_bates:
+                metadata.bates_stamps = map_bates
+
         # Build citation dict
         citation = {
             "pdf_pages": sorted(set(metadata.pages)),
@@ -944,6 +1120,9 @@ class DocumentChunker:
         # Store per-line maps for precise search attribution
         if page_map:
             citation["page_map"] = page_map
+            spans = compute_page_spans(page_map)
+            if spans:
+                citation["page_spans"] = spans
         if bates_map and any(b is not None for b in bates_map):
             citation["bates_map"] = bates_map
 
@@ -1047,29 +1226,23 @@ class DocumentChunker:
             # Preamble chunk (general objections, definitions) before any
             # numbered request.
             if metadata.pages:
-                pages = sorted(set(metadata.pages))
-                if len(pages) == 1:
-                    return f"{doc_name} (preamble), p. {pages[0]}"
-                return f"{doc_name} (preamble), pp. {pages[0]}-{pages[-1]}"
+                return f"{doc_name} (preamble), {format_page_ranges(metadata.pages)}"
             return f"{doc_name} (preamble)"
 
         else:
             # Generic: Prefer Bates numbers over page numbers (legal convention - Bug Fix #2)
             if metadata.bates_stamps:
                 # Use Bates number format: "Document at BATES_001" or "Document at BATES_001-BATES_003"
-                bates_list = metadata.bates_stamps
+                bates_list = sorted(set(metadata.bates_stamps))
                 if len(bates_list) == 1:
                     return f"{doc_name} at {bates_list[0]}"
                 else:
                     return f"{doc_name} at {bates_list[0]}-{bates_list[-1]}"
 
-            # Fallback to page numbers if no Bates stamps
+            # Fallback to page numbers if no Bates stamps. Preserve gaps
+            # ("pp. 1, 6, 8-10") rather than collapsing to a min-max span.
             if metadata.pages:
-                pages = sorted(set(metadata.pages))
-                if len(pages) == 1:
-                    return f"{doc_name}, p. {pages[0]}"
-                else:
-                    return f"{doc_name}, pp. {pages[0]}-{pages[-1]}"
+                return f"{doc_name}, {format_page_ranges(metadata.pages)}"
 
             return f"{doc_name}"
 

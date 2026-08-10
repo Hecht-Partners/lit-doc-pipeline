@@ -154,7 +154,9 @@ class TestCreateChunkMaps:
     """Verify _create_chunk stores / omits page_map and bates_map."""
 
     def test_maps_stored_in_citation(self, chunker):
-        """When page_map is provided, it appears in the chunk citation dict."""
+        """When page_map is provided, _create_chunk inserts [PAGE:N] marker
+        lines at each transition; page_map/bates_map grow to stay aligned
+        1:1 with the resulting core_text lines (not the pre-marker input)."""
         metadata = ChunkMetadata(pages=[5, 6])
         chunk = chunker._create_chunk(
             "line1\nline2", metadata, "stem", "src.pdf", 0,
@@ -162,8 +164,14 @@ class TestCreateChunkMaps:
             page_map=[5, 6], bates_map=["B1", "B2"],
         )
 
-        assert chunk.citation["page_map"] == [5, 6]
-        assert chunk.citation["bates_map"] == ["B1", "B2"]
+        assert chunk.core_text == "[PAGE:5 | B1]\nline1\n[PAGE:6 | B2]\nline2"
+        assert chunk.citation["page_map"] == [5, 5, 6, 6]
+        assert chunk.citation["bates_map"] == ["B1", "B1", "B2", "B2"]
+        assert len(chunk.citation["page_map"]) == len(chunk.core_text.split("\n"))
+        assert chunk.citation["page_spans"] == [
+            {"page": 5, "line_start": 1, "line_end": 2},
+            {"page": 6, "line_start": 3, "line_end": 4},
+        ]
 
     def test_maps_omitted_when_none(self, chunker):
         """When page_map is not provided, citation dict has no page_map key."""

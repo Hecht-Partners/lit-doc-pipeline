@@ -37,7 +37,9 @@ class DoclingConverter:
         self.bates_patterns = [
             re.compile(r'INTEL_PROX_\d{5,11}'),
             re.compile(r'PROX_INTEL-\d{5,11}'),
-            re.compile(r'[A-Z]{2,}[-_][A-Z]{2,}[-_]\d{5,}')
+            re.compile(r'[A-Z]{2,}[-_][A-Z]{2,}[-_]\d{5,}'),
+            # Separator-less production stamps (e.g. ABBOTT0000123)
+            re.compile(r'\b[A-Z]{2,10}\d{6,10}\b'),
         ]
         # Deposition line numbers (Q/A format with line numbers)
         self.line_pattern = re.compile(r'^\s*(\d{1,2})\s+[QA]\s+', re.MULTILINE)
